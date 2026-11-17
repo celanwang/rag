@@ -7,15 +7,33 @@ services:
       POSTGRES_PASSWORD: ${RAG_POSTGRES_PASSWORD:?Set RAG_POSTGRES_PASSWORD}
       RAG_API_PASSWORD: ${RAG_API_PASSWORD:?Set RAG_API_PASSWORD}
       RAG_ADMIN_PASSWORD: ${RAG_ADMIN_PASSWORD:?Set RAG_ADMIN_PASSWORD}
+      RAG_WORKER_PASSWORD: ${RAG_WORKER_PASSWORD:?Set RAG_WORKER_PASSWORD}
     ports:
       - "127.0.0.1:55433:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
       - ./schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+      - ./ingestion.sql:/docker-entrypoint-initdb.d/02-ingestion.sql:ro
     healthcheck:
       test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "postgres", "-d", "rag"]
       interval: 3s
       timeout: 3s
       retries: 30
+  objects:
+    image: pgsty/silo@sha256:29a498b24669cae1fed11c1a2fb2b3d73c68829a0a9c0b14e71b386671d38fac
+    command: ["server", "/data"]
+    environment:
+      MINIO_ROOT_USER: ${RAG_S3_ACCESS_KEY:?Set RAG_S3_ACCESS_KEY}
+      MINIO_ROOT_PASSWORD: ${RAG_S3_SECRET_KEY:?Set RAG_S3_SECRET_KEY}
+    ports:
+      - "127.0.0.1:59001:9000"
+    volumes:
+      - object-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:9000/minio/health/ready"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
 volumes:
   postgres-data:
+  object-data:

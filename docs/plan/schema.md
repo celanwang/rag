@@ -2,7 +2,7 @@
 
 首期使用八张业务表。CLI 和 API 可按 `code` 查找租户或知识库，例如 `alpha` 和 `ops-docs`。租户短码全局唯一，知识库短码在租户内唯一。`name` 用于展示，表间关联使用 UUID `id`。
 
-身份和授权阶段初始化 `tenants`、`apps`、`libraries` 和 `grants`。 [初始化 SQL](../env/rag/schema.sql)
+独立环境先初始化身份和授权表，再初始化文档、版本、切片和任务表。 [权限 SQL](../env/rag/schema.sql) · [入库 SQL](../env/rag/ingestion.sql)
 
 ```sql
 CREATE EXTENSION IF NOT EXISTS vector;
@@ -72,8 +72,8 @@ CREATE TABLE versions (
     number    integer NOT NULL CHECK (number > 0),
     filename  text NOT NULL,
     mime      text NOT NULL,
-    path      text NOT NULL,        -- 对象存储键
-    checksum  bytea NOT NULL,       -- 原件的 SHA-256
+    path      text NOT NULL UNIQUE, -- 对象存储键
+    checksum  bytea NOT NULL CHECK (octet_length(checksum) = 32),  -- 原件的 SHA-256
     config    jsonb NOT NULL,       -- 解析、切分和嵌入配置快照
     UNIQUE (document, number),
     UNIQUE (tenant, library, document, id),
@@ -133,6 +133,7 @@ CREATE TABLE jobs (
         REFERENCES versions (tenant, library, document, id),
     CHECK ((request IS NULL) = (fingerprint IS NULL)),
     CHECK ((lease IS NULL) = (deadline IS NULL)),
+    CHECK ((state = 'running') = (lease IS NOT NULL)),
     CHECK (
         (kind = 'ingest' AND app IS NOT NULL AND version IS NOT NULL AND revision IS NULL)
         OR (kind = 'sync' AND app IS NULL AND version IS NULL AND revision IS NOT NULL AND request IS NULL)
