@@ -1,12 +1,12 @@
-import os
 import unittest
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timedelta, timezone
+from unittest.mock import patch
 
 import psycopg
 
 from ingestion_fixture import SAMPLES, IngestionFixture
-from rag.db import SCHEMA_OPTIONS, set_tenant
+from rag.db import set_tenant
+from rag.ingest import record_submission
 from rag.jobs import MAX_ATTEMPTS, claim
 from rag.text import MAX_UPLOAD_BYTES
 from test_authorization import cli
@@ -38,11 +38,11 @@ class IngestionTest(IngestionFixture, unittest.TestCase):
         done = self.status(job).json()
         self.assertEqual((done["state"], done["attempts"], done["keyword_status"]), ("done", 2, "pending"))
         self.assertEqual(done["published_version_id"], job["version_id"])
-        path, mime = self.owner.execute(
-            "SELECT path, mime FROM rag.versions WHERE id = %s", (job["version_id"],),
+        content, mime = self.owner.execute(
+            "SELECT content, mime FROM rag.versions WHERE id = %s", (job["version_id"],),
         ).fetchone()
         self.assertEqual(mime, "text/plain")
-        self.assertEqual(self.store.get(path, MAX_UPLOAD_BYTES), (SAMPLES / file).read_bytes())
+        self.assertEqual(content, (SAMPLES / file).read_bytes())
         chunk_count, dimension, offsets = self.owner.execute(
             """
             SELECT count(*), min(vector_dims(embedding)), bool_and(location ? 'line_start' AND location ? 'line_end')
@@ -113,19 +113,26 @@ class IngestionTest(IngestionFixture, unittest.TestCase):
         with self.worker.transaction():
             set_tenant(self.worker, self.alpha_id)
             self.assertEqual(self.worker.execute("SELECT tenant::text FROM versions").fetchall(), [(self.alpha_id,)])
-        self.assertEqual(self.worker.execute("SELECT path FROM versions").fetchall(), [])
+        self.assertEqual(self.worker.execute("SELECT content FROM versions").fetchall(), [])
         cli("revoke", self.alpha, self.writer["id"], "shop", "write")
         self.assertEqual(self.status(alpha).status_code, 403)
         self.assertEqual(self.upload(request="again").status_code, 403)
         self.assertEqual(self.status(beta, key=beta_key).json()["state"], "done")
 
-    def test_orphan_cleanup_preserves_referenced_original(self):
+    def test_upload_rolls_back_original_and_job_together(self):
+        def fail_after_insert(*args, **kwargs):
+            record_submission(*args, **kwargs)
+            raise psycopg.OperationalError("simulated upload transaction failure")
+
+        with patch("rag.ingest.record_submission", side_effect=fail_after_insert):
+            self.assertEqual(self.upload().status_code, 503)
+        self.assertEqual(self.originals(), [])
+        for table in ("documents", "jobs"):
+            row = self.owner.execute(
+                psycopg.sql.SQL("SELECT count(*) FROM {} WHERE tenant = %s").format(psycopg.sql.Identifier("rag", table)),
+                (self.alpha_id,),
+            ).fetchone()
+            self.assertEqual(row[0], 0)
         job = self.accepted()
-        path = self.owner.execute("SELECT path FROM rag.versions WHERE id = %s", (job["version_id"],)).fetchone()[0]
-        orphan = f"originals/{self.alpha_id}/orphan"
-        self.store.put(orphan, b"orphan", "text/plain")
-        cutoff = datetime.now(timezone.utc) + timedelta(seconds=1)
-        with psycopg.connect(os.environ["RAG_ADMIN_DATABASE_URL"], autocommit=True, options=SCHEMA_OPTIONS) as conn:
-            self.assertGreaterEqual(self.store.prune(conn, cutoff), 1)
-        self.assertEqual(self.store.get(path, MAX_UPLOAD_BYTES), (SAMPLES / "alpha/returns.md").read_bytes())
-        self.assertEqual(self.originals(), [path])
+        self.assertEqual(self.status(job).json()["state"], "queued")
+        self.assertEqual(self.originals(), [(SAMPLES / "alpha/returns.md").read_bytes()])

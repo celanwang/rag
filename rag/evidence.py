@@ -62,7 +62,7 @@ class Original:
     version_id: UUID
     filename: str
     mime: str
-    path: str
+    content: bytes
     checksum: bytes
 
 
@@ -119,8 +119,17 @@ def citation(pool: ConnectionPool, key: str, chunk: UUID) -> Evidence:
 def original(pool: ConnectionPool, key: str, document: UUID) -> Original | None:
     with app_session(pool, key) as (conn, identity):
         row = conn.execute(
-            "SELECT v.id, v.filename, v.mime, v.path, v.checksum" + PUBLISHED + READABLE
+            "SELECT v.id, v.filename, v.mime, v.content, v.checksum" + PUBLISHED + READABLE
             + "AND d.id = %(document)s",
             {"tenant": identity.tenant, "app": identity.app, "document": document},
         ).fetchone()
     return Original(*row) if row is not None else None
+
+
+def original_is_current(pool: ConnectionPool, key: str, document: UUID, version: UUID) -> bool:
+    with app_session(pool, key) as (conn, identity):
+        row = conn.execute(
+            "SELECT 1" + PUBLISHED + READABLE + "AND d.id = %(document)s AND v.id = %(version)s",
+            {"tenant": identity.tenant, "app": identity.app, "document": document, "version": version},
+        ).fetchone()
+    return row is not None

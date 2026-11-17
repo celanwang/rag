@@ -15,7 +15,6 @@ from .jobs import (
     LEASE_SECONDS, Lease, LeaseLost, complete, fail_in_transaction, lock_lease, run_worker, tenant_transaction,
 )
 from .models import EMBEDDING_BATCH_SIZE, BailianModels, ModelError
-from .objects import ObjectStore, StorageError
 from .text import CONFIG, MAX_UPLOAD_BYTES, Chunk, InvalidText, decode_text, split_text
 
 logger = logging.getLogger(__name__)
@@ -27,7 +26,7 @@ class Source:
     document: UUID
     version: UUID
     mime: str
-    path: str
+    content: bytes
     checksum: bytes
     config: dict
 
@@ -36,7 +35,7 @@ def read_source(conn: psycopg.Connection, lease: Lease) -> Source:
     with tenant_transaction(conn, lease):
         row = conn.execute(
             """
-            SELECT v.library, v.document, v.id, v.mime, v.path, v.checksum, v.config
+            SELECT v.library, v.document, v.id, v.mime, v.content, v.checksum, v.config
             FROM jobs AS j
             JOIN versions AS v
               ON (v.tenant, v.library, v.document, v.id) = (j.tenant, j.library, j.document, j.version)
@@ -108,12 +107,12 @@ def publish(
         return True
 
 
-def process(conn: psycopg.Connection, lease: Lease, objects: ObjectStore, models: BailianModels) -> None:
+def process(conn: psycopg.Connection, lease: Lease, models: BailianModels) -> None:
     try:
         source = read_source(conn, lease)
         if source.config != CONFIG:
             raise InvalidText("Unsupported version configuration")
-        original = objects.get(source.path, MAX_UPLOAD_BYTES)
+        original = source.content
         if len(original) > MAX_UPLOAD_BYTES or hashlib.sha256(original).digest() != source.checksum:
             raise InvalidText("Original checksum does not match")
         chunks = split_text(decode_text(original), markdown=source.mime == "text/markdown")
@@ -134,8 +133,6 @@ def process(conn: psycopg.Connection, lease: Lease, objects: ObjectStore, models
         return
     except LeaseLost:
         return
-    except StorageError as error:
-        reason, retryable = "original_unavailable", error.retryable
     except InvalidText:
         reason, retryable = "content_invalid", False
     except httpx.RequestError:
@@ -166,14 +163,11 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO)
     # Worker logs describe job outcomes without request payloads.
     logging.getLogger("httpx").setLevel(logging.WARNING)
-    objects = ObjectStore.from_env()
     try:
         with BailianModels.from_env() as models:
-            run_worker(dsn, "ingest", partial(process, objects=objects, models=models), once=args.once)
+            run_worker(dsn, "ingest", partial(process, models=models), once=args.once)
     except KeyboardInterrupt:
         pass
-    finally:
-        objects.close()
 
 
 if __name__ == "__main__":

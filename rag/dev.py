@@ -31,7 +31,7 @@ SQL = (
 )
 SECRETS = (
     "RAG_POSTGRES_PASSWORD", "RAG_API_PASSWORD", "RAG_ADMIN_PASSWORD", "RAG_WORKER_PASSWORD",
-    "RAG_SYNC_PASSWORD", "RAG_S3_ACCESS_KEY", "RAG_S3_SECRET_KEY",
+    "RAG_SYNC_PASSWORD",
 )
 
 
@@ -59,11 +59,8 @@ def container_env(name: str) -> dict:
 def configure() -> None:
     values = read_local_env()
     postgres = container_env("rag-dev-postgres-1")
-    objects = container_env("rag-dev-objects-1")
-    recorded = postgres | objects
+    recorded = postgres.copy()
     recorded["RAG_POSTGRES_PASSWORD"] = postgres.get("POSTGRES_PASSWORD")
-    recorded["RAG_S3_ACCESS_KEY"] = objects.get("MINIO_ROOT_USER")
-    recorded["RAG_S3_SECRET_KEY"] = objects.get("MINIO_ROOT_PASSWORD")
     if not postgres and not all(values.get(name) for name in SECRETS[:3]):
         volume = subprocess.run(
             ["docker", "volume", "inspect", "rag-dev_postgres-data"], capture_output=True, check=False,
@@ -91,9 +88,7 @@ def runtime(database: str = "rag") -> dict:
     ):
         port = env.get("RAG_POSTGRES_PORT", "55433")
         env[key] = f"postgresql://{role}:{quote(env[password], safe='')}@127.0.0.1:{port}/{database}"
-    env["RAG_S3_ENDPOINT"] = f"http://127.0.0.1:{env.get('RAG_S3_PORT', '59001')}"
     env["RAG_ES_URL"] = f"http://127.0.0.1:{env.get('RAG_ES_PORT', '59201')}"
-    env["RAG_S3_BUCKET"] = local.get("RAG_S3_BUCKET", "rag-originals")
     env["RAG_ES_INDEX"] = local.get("RAG_ES_INDEX", "rag-chunks-v1")
     return env
 
@@ -113,7 +108,12 @@ def up() -> None:
         present = psql(env, "rag", "-Atc", check, capture_output=True, text=True).stdout.strip()
         if present == "f":
             psql(env, "rag", "-q", "-f", f"/docker-entrypoint-initdb.d/{filename}")
-    command(sys.executable, "-m", "rag.objects", env=env)
+    legacy = psql(env, "rag", "-Atc", """
+        SELECT EXISTS (SELECT 1 FROM pg_attribute
+                       WHERE attrelid = 'rag.versions'::regclass AND attname = 'path' AND NOT attisdropped)
+    """, capture_output=True, text=True).stdout.strip()
+    if legacy == "t":
+        raise SystemExit("Run the original-file migration in the runbook before starting the RAG service.")
     command(*COMPOSE, "ps", env=env)
 
 
@@ -132,13 +132,13 @@ def new_run(kind: str):
     env = runtime(database)
     folder.mkdir(parents=True, mode=0o700)
     if kind != "demo":
-        env["RAG_ES_INDEX"] = env["RAG_S3_BUCKET"] = f"rag-dev-{kind}-{stamp}"
+        env["RAG_ES_INDEX"] = f"rag-dev-{kind}-{stamp}"
     manifest = {
         "kind": kind, "run": stamp, "status": "running", "database": database,
-        "bucket": env["RAG_S3_BUCKET"], "index": env["RAG_ES_INDEX"],
+        "index": env["RAG_ES_INDEX"],
     }
     store_json(folder / "run.json", manifest)
-    print(f"{kind}: database={database}, bucket={manifest['bucket']}, index={manifest['index']}", flush=True)
+    print(f"{kind}: database={database}, index={manifest['index']}", flush=True)
     print(folder, flush=True)
     try:
         if kind != "demo":
@@ -149,7 +149,6 @@ def new_run(kind: str):
             command(*COMPOSE, "exec", "-T", "postgres", "createdb", "-U", "postgres", database, env=env)
             psql(env, database, "-qc", "CREATE EXTENSION vector WITH SCHEMA public")
             psql(env, database, "-q", "--single-transaction", input=snapshot)
-            command(sys.executable, "-m", "rag.objects", env=env)
         yield env, folder, manifest
     except BaseException:
         manifest["status"] = "failed"
@@ -285,7 +284,7 @@ def status() -> None:
     """)
     for path in sorted(RUNS.glob("*/run.json")):
         run = json.loads(path.read_text())
-        print(f"{path.parent.name} {run['status']}: db={run['database']} s3={run['bucket']} es={run['index']}")
+        print(f"{path.parent.name} {run['status']}: db={run['database']} es={run['index']}")
 
 
 def main() -> None:

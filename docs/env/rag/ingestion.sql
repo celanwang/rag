@@ -33,7 +33,7 @@ CREATE TABLE versions (
     number    integer NOT NULL CHECK (number > 0),
     filename  text NOT NULL,
     mime      text NOT NULL,
-    path      text NOT NULL UNIQUE,
+    content   bytea NOT NULL CHECK (octet_length(content) BETWEEN 1 AND 262144),
     checksum  bytea NOT NULL CHECK (octet_length(checksum) = 32),
     config    jsonb NOT NULL,
     UNIQUE (document, number),
@@ -117,7 +117,6 @@ ALTER TABLE jobs FORCE ROW LEVEL SECURITY;
 
 GRANT SELECT, INSERT, UPDATE (target) ON documents TO rag_api;
 GRANT SELECT, INSERT ON versions, jobs TO rag_api;
-GRANT SELECT (path) ON versions TO rag_admin;
 GRANT SELECT, UPDATE (published, revision) ON documents TO rag_worker;
 GRANT SELECT ON versions TO rag_worker;
 GRANT INSERT ON chunks TO rag_worker;
@@ -127,7 +126,6 @@ CREATE POLICY document_scope ON documents TO rag_api, rag_worker
     USING (tenant = current_tenant()) WITH CHECK (tenant = current_tenant());
 CREATE POLICY version_scope ON versions TO rag_api, rag_worker
     USING (tenant = current_tenant()) WITH CHECK (tenant = current_tenant());
-CREATE POLICY version_paths ON versions FOR SELECT TO rag_admin USING (true);
 CREATE POLICY chunk_scope ON chunks FOR INSERT TO rag_worker
     WITH CHECK (tenant = current_tenant());
 CREATE POLICY api_jobs ON jobs TO rag_api

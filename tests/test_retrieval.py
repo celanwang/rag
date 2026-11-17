@@ -9,7 +9,7 @@ import psycopg
 from ingestion_fixture import IngestionFixture, SAMPLES
 from rag.api import app
 from rag.db import SCHEMA_OPTIONS
-from rag.evidence import load_evidence
+from rag.evidence import load_evidence, original
 from rag.jobs import claim
 from rag.keyword import KeywordIndex
 from rag.models import BailianModels
@@ -194,14 +194,11 @@ class RetrievalTest(IngestionFixture, unittest.TestCase):
     def test_revocation_during_download_discards_original(self):
         document = self.publish()
         download = f"/v1/documents/{document['document_id']}/file"
-        store = app.state.objects
-        original_get = store.get
-
         def get_then_revoke(*args, **kwargs):
-            body = original_get(*args, **kwargs)
+            source = original(*args, **kwargs)
             self.owner.execute("UPDATE rag.documents SET readers = '{}' WHERE id = %s", (document["document_id"],))
-            return body
+            return source
 
-        with patch.object(store, "get", side_effect=get_then_revoke):
+        with patch("rag.api.original", side_effect=get_then_revoke):
             response = self.client.get(download, headers=self.auth(self.reader))
         self.assertEqual(response.status_code, 404)

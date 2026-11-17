@@ -18,11 +18,10 @@ from pydantic import BaseModel, ConfigDict, Field
 from .auth import InvalidKey, Library, LibraryForbidden, LibraryNotFound, app_session, require_library
 from .db import SCHEMA_OPTIONS
 from .documents import DocumentChange, InvalidReaders, change_document
-from .evidence import CitationNotFound, Evidence, citation, original
+from .evidence import CitationNotFound, Evidence, citation, original, original_is_current
 from .ingest import DocumentNotFound, JobNotFound, JobStatus, RequestConflict, Submission, job_status, submit
 from .keyword import KeywordIndex
 from .models import BailianModels
-from .objects import ObjectStore, StorageError
 from .retrieval import RetrievalUnavailable, Retriever, Search
 from .text import MAX_UPLOAD_BYTES, InvalidText
 
@@ -43,14 +42,10 @@ async def lifespan(app: FastAPI):
     with ExitStack() as resources:
         resources.callback(pool.close)
         pool.open(wait=True, timeout=10)
-        objects = ObjectStore.from_env() if os.environ.get("RAG_S3_ENDPOINT") else None
-        if objects:
-            resources.callback(objects.close)
         keyword = resources.enter_context(KeywordIndex.from_env())
         models = resources.enter_context(BailianModels.from_env()) if os.environ.get("DASHSCOPE_API_KEY") else None
         executor = resources.enter_context(ThreadPoolExecutor(max_workers=8))
         app.state.pool = pool
-        app.state.objects = objects
         app.state.retriever = Retriever(pool, keyword, models, executor)
         yield
 
@@ -98,11 +93,6 @@ def upload_conflict(_request: Request, _error: RequestConflict) -> JSONResponse:
     return JSONResponse({"detail": "Idempotency key already used for a different upload"}, status_code=409)
 
 
-@app.exception_handler(StorageError)
-def storage_error(_request: Request, _error: StorageError) -> JSONResponse:
-    return JSONResponse({"detail": "Object storage unavailable"}, status_code=503)
-
-
 @app.exception_handler(InvalidReaders)
 def invalid_readers(_request: Request, _error: InvalidReaders) -> JSONResponse:
     return JSONResponse({"detail": "Readers must be applications in the same tenant"}, status_code=422)
@@ -145,11 +135,8 @@ async def upload_document(
         if len(body) + len(chunk) > MAX_UPLOAD_BYTES:
             raise HTTPException(413, "File exceeds the 256 KiB upload limit")
         body.extend(chunk)
-    objects = request.app.state.objects
-    if objects is None:
-        raise StorageError(retryable=False)
     return await run_in_threadpool(
-        submit, request.app.state.pool, objects, key, code, idempotency_key, filename, bytes(body), document_id,
+        submit, request.app.state.pool, key, code, idempotency_key, filename, bytes(body), document_id,
     )
 
 
@@ -174,15 +161,11 @@ def read_file(document_id: UUID, request: Request, key: ApiKey) -> Response:
     source = original(pool, key, document_id)
     if source is None:
         raise DocumentNotFound
-    objects = request.app.state.objects
-    if objects is None:
-        raise StorageError(retryable=False)
-    body = objects.get(source.path, MAX_UPLOAD_BYTES)
+    body = source.content
     if len(body) > MAX_UPLOAD_BYTES or hashlib.sha256(body).digest() != source.checksum:
         logger.error("Original checksum mismatch document=%s version=%s", document_id, source.version_id)
-        raise StorageError(retryable=False)
-    current = original(pool, key, document_id)
-    if current is None or current.version_id != source.version_id:
+        raise HTTPException(503, "Original unavailable")
+    if not original_is_current(pool, key, document_id, source.version_id):
         raise DocumentNotFound
     return Response(body, media_type=source.mime, headers={
         "Content-Disposition": f"attachment; filename*=UTF-8''{quote(source.filename, safe='')}",

@@ -11,7 +11,6 @@ from psycopg.types.json import Jsonb
 from psycopg_pool import ConnectionPool
 
 from .auth import Identity, app_session, require_library
-from .objects import ObjectStore, lock_object
 from .text import CONFIG, InvalidText, decode_text
 
 MIMES = {".md": "text/markdown", ".txt": "text/plain"}
@@ -96,7 +95,7 @@ def lock_document(conn: psycopg.Connection, library: UUID, document: UUID) -> No
 
 def record_submission(
     conn: psycopg.Connection, identity: Identity, library: UUID, key: str, fingerprint: bytes,
-    document: UUID | None, version: UUID, filename: str, mime: str, path: str, checksum: bytes,
+    document: UUID | None, version: UUID, filename: str, mime: str, content: bytes, checksum: bytes,
 ) -> Submission:
     tenant = identity.tenant
     if document is None:
@@ -115,10 +114,10 @@ def record_submission(
 
     conn.execute(
         """
-        INSERT INTO versions (id, tenant, library, document, number, filename, mime, path, checksum, config)
+        INSERT INTO versions (id, tenant, library, document, number, filename, mime, content, checksum, config)
         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """,
-        (version, tenant, library, document, number, filename, mime, path, checksum, Jsonb(CONFIG)),
+        (version, tenant, library, document, number, filename, mime, content, checksum, Jsonb(CONFIG)),
     )
     conn.execute("UPDATE documents SET target = %s WHERE id = %s", (version, document))
     job = conn.execute(
@@ -132,7 +131,7 @@ def record_submission(
 
 
 def submit(
-    pool: ConnectionPool, objects: ObjectStore, api_key: str, code: str, request_key: str,
+    pool: ConnectionPool, api_key: str, code: str, request_key: str,
     filename: str, body: bytes, document: UUID | None,
 ) -> Submission:
     mime = upload_mime(filename)
@@ -147,21 +146,8 @@ def submit(
         previous = existing_submission(conn, identity, library.id, request_key, fingerprint)
         if previous:
             return previous
-        if document is not None:
-            # Check before writing the object and lock the document again when recording the version.
-            visible = conn.execute(
-                "SELECT id FROM documents WHERE library = %s AND id = %s AND deleted IS NULL",
-                (library.id, document),
-            ).fetchone()
-            if visible is None:
-                raise DocumentNotFound
-
-        version = uuid4()
-        path = f"originals/{identity.tenant}/{library.id}/{version}"
-        lock_object(conn, path)
-        objects.put(path, body, mime)
         accepted = record_submission(
-            conn, identity, library.id, request_key, fingerprint, document, version, filename, mime, path, checksum,
+            conn, identity, library.id, request_key, fingerprint, document, uuid4(), filename, mime, body, checksum,
         )
     logger.info(
         "Upload accepted tenant=%s app=%s job=%s document=%s version=%s",

@@ -11,7 +11,6 @@ from rag.api import app
 from rag.db import SCHEMA_OPTIONS
 from rag.jobs import claim
 from rag.models import BailianModels
-from rag.objects import ObjectStore
 from rag.worker import process
 from test_authorization import cli
 
@@ -36,9 +35,6 @@ def bailian_transport(status):
 class IngestionFixture:
     @classmethod
     def setUpClass(cls):
-        cls.store = ObjectStore.from_env()
-        cls.addClassCleanup(cls.store.close)
-        cls.store.ensure_bucket()
         cls.client = cls.enterClassContext(TestClient(app))
 
     def setUp(self):
@@ -94,12 +90,9 @@ class IngestionFixture:
         return response.json()
 
     def originals(self):
-        return [
-            item.object_name
-            for item in self.store.client.list_objects(
-                self.store.bucket, prefix=f"originals/{self.alpha_id}/", recursive=True,
-            )
-        ]
+        return [content for (content,) in self.owner.execute(
+            "SELECT content FROM rag.versions WHERE tenant = %s", (self.alpha_id,),
+        )]
 
     def status(self, submission, key=None):
         return self.client.get(
@@ -112,4 +105,4 @@ class IngestionFixture:
         self.assertIsNotNone(lease)
         self.assertEqual(str(lease.job), job["job_id"])
         with httpx.Client(base_url="https://example.invalid", transport=bailian_transport(status)) as client:
-            process(self.worker, lease, self.store, BailianModels(client))
+            process(self.worker, lease, BailianModels(client))
