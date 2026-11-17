@@ -3,13 +3,14 @@
 
 BEGIN;
 
-CREATE EXTENSION IF NOT EXISTS vector;
+CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public;
+SET LOCAL search_path TO rag, pg_temp;
 CREATE ROLE rag_worker LOGIN PASSWORD :'worker_password' NOSUPERUSER NOBYPASSRLS;
 CREATE ROLE rag_queue NOLOGIN NOSUPERUSER NOBYPASSRLS;
 GRANT USAGE ON SCHEMA rag TO rag_worker, rag_queue;
 
 -- Track the latest requested version and the version available to readers.
-CREATE TABLE rag.documents (
+CREATE TABLE documents (
     id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant     uuid NOT NULL,
     library    uuid NOT NULL,
@@ -20,11 +21,11 @@ CREATE TABLE rag.documents (
     synced     bigint CHECK (synced BETWEEN 0 AND revision),
     deleted    timestamptz,
     UNIQUE (tenant, library, id),
-    FOREIGN KEY (tenant, library) REFERENCES rag.libraries (tenant, id)
+    FOREIGN KEY (tenant, library) REFERENCES libraries (tenant, id)
 );
 
 -- Keep immutable original metadata and the configuration for each version.
-CREATE TABLE rag.versions (
+CREATE TABLE versions (
     id        uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant    uuid NOT NULL,
     library   uuid NOT NULL,
@@ -37,17 +38,17 @@ CREATE TABLE rag.versions (
     config    jsonb NOT NULL,
     UNIQUE (document, number),
     UNIQUE (tenant, library, document, id),
-    FOREIGN KEY (tenant, library, document) REFERENCES rag.documents (tenant, library, id)
+    FOREIGN KEY (tenant, library, document) REFERENCES documents (tenant, library, id)
 );
 
-ALTER TABLE rag.documents
+ALTER TABLE documents
     ADD FOREIGN KEY (tenant, library, id, target)
-        REFERENCES rag.versions (tenant, library, document, id),
+        REFERENCES versions (tenant, library, document, id),
     ADD FOREIGN KEY (tenant, library, id, published)
-        REFERENCES rag.versions (tenant, library, document, id);
+        REFERENCES versions (tenant, library, document, id);
 
 -- Store prepared text, original line ranges, and document embeddings.
-CREATE TABLE rag.chunks (
+CREATE TABLE chunks (
     id         uuid PRIMARY KEY,
     tenant     uuid NOT NULL,
     library    uuid NOT NULL,
@@ -57,14 +58,14 @@ CREATE TABLE rag.chunks (
     heading    text,
     body       text NOT NULL,
     location   jsonb NOT NULL,
-    embedding  vector(512) NOT NULL,
+    embedding  public.vector(512) NOT NULL,
     UNIQUE (version, ordinal),
     FOREIGN KEY (tenant, library, document, version)
-        REFERENCES rag.versions (tenant, library, document, id)
+        REFERENCES versions (tenant, library, document, id)
 );
 
 -- Persist ingest requests, worker leases, and pending index changes.
-CREATE TABLE rag.jobs (
+CREATE TABLE jobs (
     id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant       uuid NOT NULL,
     library      uuid NOT NULL,
@@ -85,10 +86,10 @@ CREATE TABLE rag.jobs (
     error        text,
     UNIQUE (tenant, library, app, request),
     UNIQUE (document, revision),
-    FOREIGN KEY (tenant, app) REFERENCES rag.apps (tenant, id),
-    FOREIGN KEY (tenant, library, document) REFERENCES rag.documents (tenant, library, id),
+    FOREIGN KEY (tenant, app) REFERENCES apps (tenant, id),
+    FOREIGN KEY (tenant, library, document) REFERENCES documents (tenant, library, id),
     FOREIGN KEY (tenant, library, document, version)
-        REFERENCES rag.versions (tenant, library, document, id),
+        REFERENCES versions (tenant, library, document, id),
     CHECK ((request IS NULL) = (fingerprint IS NULL)),
     CHECK ((lease IS NULL) = (deadline IS NULL)),
     CHECK ((state = 'running') = (lease IS NOT NULL)),
@@ -98,55 +99,55 @@ CREATE TABLE rag.jobs (
     )
 );
 
-CREATE INDEX ON rag.jobs (kind, available) WHERE state IN ('queued', 'retry');
-CREATE INDEX ON rag.jobs (kind, deadline) WHERE state = 'running';
+CREATE INDEX ON jobs (kind, available) WHERE state IN ('queued', 'retry');
+CREATE INDEX ON jobs (kind, deadline) WHERE state = 'running';
 
-CREATE FUNCTION rag.current_tenant() RETURNS uuid
+CREATE FUNCTION current_tenant() RETURNS uuid
 LANGUAGE sql STABLE
 RETURN NULLIF(current_setting('rag.tenant_id', true), '')::uuid;
 
-ALTER TABLE rag.documents ENABLE ROW LEVEL SECURITY;
-ALTER TABLE rag.documents FORCE ROW LEVEL SECURITY;
-ALTER TABLE rag.versions ENABLE ROW LEVEL SECURITY;
-ALTER TABLE rag.versions FORCE ROW LEVEL SECURITY;
-ALTER TABLE rag.chunks ENABLE ROW LEVEL SECURITY;
-ALTER TABLE rag.chunks FORCE ROW LEVEL SECURITY;
-ALTER TABLE rag.jobs ENABLE ROW LEVEL SECURITY;
-ALTER TABLE rag.jobs FORCE ROW LEVEL SECURITY;
+ALTER TABLE documents ENABLE ROW LEVEL SECURITY;
+ALTER TABLE documents FORCE ROW LEVEL SECURITY;
+ALTER TABLE versions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE versions FORCE ROW LEVEL SECURITY;
+ALTER TABLE chunks ENABLE ROW LEVEL SECURITY;
+ALTER TABLE chunks FORCE ROW LEVEL SECURITY;
+ALTER TABLE jobs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE jobs FORCE ROW LEVEL SECURITY;
 
-GRANT SELECT, INSERT, UPDATE (target) ON rag.documents TO rag_api;
-GRANT SELECT, INSERT ON rag.versions, rag.jobs TO rag_api;
-GRANT SELECT (path) ON rag.versions TO rag_admin;
-GRANT SELECT, UPDATE (published, revision) ON rag.documents TO rag_worker;
-GRANT SELECT ON rag.versions TO rag_worker;
-GRANT INSERT ON rag.chunks TO rag_worker;
-GRANT SELECT, INSERT, UPDATE (state, stage, available, lease, deadline, error) ON rag.jobs TO rag_worker;
+GRANT SELECT, INSERT, UPDATE (target) ON documents TO rag_api;
+GRANT SELECT, INSERT ON versions, jobs TO rag_api;
+GRANT SELECT (path) ON versions TO rag_admin;
+GRANT SELECT, UPDATE (published, revision) ON documents TO rag_worker;
+GRANT SELECT ON versions TO rag_worker;
+GRANT INSERT ON chunks TO rag_worker;
+GRANT SELECT, INSERT, UPDATE (state, stage, available, lease, deadline, error) ON jobs TO rag_worker;
 
-CREATE POLICY document_scope ON rag.documents TO rag_api, rag_worker
-    USING (tenant = rag.current_tenant()) WITH CHECK (tenant = rag.current_tenant());
-CREATE POLICY version_scope ON rag.versions TO rag_api, rag_worker
-    USING (tenant = rag.current_tenant()) WITH CHECK (tenant = rag.current_tenant());
-CREATE POLICY version_paths ON rag.versions FOR SELECT TO rag_admin USING (true);
-CREATE POLICY chunk_scope ON rag.chunks FOR INSERT TO rag_worker
-    WITH CHECK (tenant = rag.current_tenant());
-CREATE POLICY api_jobs ON rag.jobs TO rag_api
-    USING (tenant = rag.current_tenant() AND kind = 'ingest')
-    WITH CHECK (tenant = rag.current_tenant() AND kind = 'ingest');
-CREATE POLICY worker_read_jobs ON rag.jobs FOR SELECT TO rag_worker
-    USING (tenant = rag.current_tenant() AND kind = 'ingest');
-CREATE POLICY worker_update_jobs ON rag.jobs FOR UPDATE TO rag_worker
-    USING (tenant = rag.current_tenant() AND kind = 'ingest')
-    WITH CHECK (tenant = rag.current_tenant() AND kind = 'ingest');
-CREATE POLICY worker_enqueue_sync ON rag.jobs FOR INSERT TO rag_worker
-    WITH CHECK (tenant = rag.current_tenant() AND kind = 'sync');
+CREATE POLICY document_scope ON documents TO rag_api, rag_worker
+    USING (tenant = current_tenant()) WITH CHECK (tenant = current_tenant());
+CREATE POLICY version_scope ON versions TO rag_api, rag_worker
+    USING (tenant = current_tenant()) WITH CHECK (tenant = current_tenant());
+CREATE POLICY version_paths ON versions FOR SELECT TO rag_admin USING (true);
+CREATE POLICY chunk_scope ON chunks FOR INSERT TO rag_worker
+    WITH CHECK (tenant = current_tenant());
+CREATE POLICY api_jobs ON jobs TO rag_api
+    USING (tenant = current_tenant() AND kind = 'ingest')
+    WITH CHECK (tenant = current_tenant() AND kind = 'ingest');
+CREATE POLICY worker_read_jobs ON jobs FOR SELECT TO rag_worker
+    USING (tenant = current_tenant() AND kind = 'ingest');
+CREATE POLICY worker_update_jobs ON jobs FOR UPDATE TO rag_worker
+    USING (tenant = current_tenant() AND kind = 'ingest')
+    WITH CHECK (tenant = current_tenant() AND kind = 'ingest');
+CREATE POLICY worker_enqueue_sync ON jobs FOR INSERT TO rag_worker
+    WITH CHECK (tenant = current_tenant() AND kind = 'sync');
 
 -- Claim tasks across tenants without exposing documents or job payloads.
 GRANT SELECT (id, tenant, kind, state, stage, attempts, available, lease, deadline),
-    UPDATE (state, stage, attempts, lease, deadline, error) ON rag.jobs TO rag_queue;
-CREATE POLICY queue_ingest ON rag.jobs TO rag_queue
+    UPDATE (state, stage, attempts, lease, deadline, error) ON jobs TO rag_queue;
+CREATE POLICY queue_ingest ON jobs TO rag_queue
     USING (kind = 'ingest') WITH CHECK (kind = 'ingest');
 
-CREATE FUNCTION rag.claim_ingest(max_attempts integer, lease_seconds integer)
+CREATE FUNCTION claim_ingest(max_attempts integer, lease_seconds integer)
 RETURNS TABLE (id uuid, tenant uuid, lease uuid)
 LANGUAGE sql SECURITY DEFINER
 SET search_path = pg_catalog, pg_temp
@@ -176,8 +177,8 @@ AS $$
     SELECT * FROM claimed
 $$;
 
-ALTER FUNCTION rag.claim_ingest(integer, integer) OWNER TO rag_queue;
-REVOKE ALL ON FUNCTION rag.claim_ingest(integer, integer) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION rag.claim_ingest(integer, integer) TO rag_worker;
+ALTER FUNCTION claim_ingest(integer, integer) OWNER TO rag_queue;
+REVOKE ALL ON FUNCTION claim_ingest(integer, integer) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION claim_ingest(integer, integer) TO rag_worker;
 
 COMMIT;
