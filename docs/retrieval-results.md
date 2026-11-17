@@ -24,4 +24,4 @@ B15 有两个证据锚点，关键词和 RRF 的前五条各覆盖一个，向�
 
 以 50 ms 间隔轮询任务接口，观察到 PG 发布至 ES 可搜的间隔 p50 为 534.2 ms，最大 970.3 ms。该值包含同步 Worker 轮询和 HTTP 状态采样时间。
 
-复跑命令为 `uv run --locked python -m rag.benchmark --repeat 3`。本地 `.rag/benchmark.json` 记录逐题排名、阶段耗时和语料指纹。 [复跑配置](../rag/README.md#benchmark-retrieval)
+在固定 `rag-dev` 上复跑时，执行 `uv run --locked --env-file .env python -m rag.dev benchmark --repeat 3`。新一轮的环境清单和逐题结果保存在 `.rag/dev/<run>/`。本报告的原始记录保存在本地 `.rag/benchmark.json`。 [复跑配置](../rag/README.md#persistent-rag-dev)

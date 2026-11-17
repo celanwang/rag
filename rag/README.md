@@ -2,52 +2,38 @@
 
 The RAG service ingests Markdown and plain text and retrieves authorized evidence with citations. Run the commands from the repository root with Docker Compose, uv, and Python 3.11. [Compose config](../docs/env/rag/compose.yaml)
 
-## Start local services
+## Persistent rag-dev
 
-Generate local credentials once. A fresh volume initializes the eight business tables and the worker roles. PostgreSQL, S3, and Elasticsearch listen on `127.0.0.1` at ports `55433`, `59001`, and `59201`. Set `RAG_POSTGRES_PORT`, `RAG_S3_PORT`, or `RAG_ES_PORT` when running another local stack. [Access SQL](../docs/env/rag/schema.sql) · [Ingestion SQL](../docs/env/rag/ingestion.sql) · [Sync SQL](../docs/env/rag/sync.sql)
+Use this Compose project for the business service, e-commerce samples, integration tests, and benchmarks.
 
 ```sh
-(
-  umask 077
-  touch docs/env/rag/.env
-  for name in RAG_POSTGRES_PASSWORD RAG_API_PASSWORD RAG_ADMIN_PASSWORD RAG_WORKER_PASSWORD RAG_SYNC_PASSWORD RAG_S3_ACCESS_KEY RAG_S3_SECRET_KEY; do
-    if ! grep -q "^$name=" docs/env/rag/.env; then
-      printf '\n%s=%s\n' "$name" "$(openssl rand -hex 24)" >> docs/env/rag/.env
-    fi
-  done
-)
-docker compose --env-file docs/env/rag/.env -f docs/env/rag/compose.yaml up -d --wait
 uv sync --locked --python 3.11
+uv run --locked python -m rag.dev up
+uv run --locked --env-file .env python -m rag.dev demo
+uv run --locked --env-file .env python -m rag.dev serve
 ```
 
-For an existing business database with only the access tables, apply the ingestion SQL once to keep the tenants and grants already provisioned.
+Run `serve` in a separate terminal to keep the API and both workers running. Open [API documentation](http://127.0.0.1:8001/docs) to browse the endpoints. The demo creates two sample tenants in the main `rag` database and writes read-only keys to the run's local `readers.json`. Use a key from that file in the API docs and query its `shop` knowledge base.
+
+`up` reuses the existing PostgreSQL, S3, and Elasticsearch volumes and applies missing SQL stages. Local credentials are stored in `docs/env/rag/.env`. [Compose config](../docs/env/rag/compose.yaml)
 
 ```sh
-docker compose --env-file docs/env/rag/.env -f docs/env/rag/compose.yaml exec -T postgres \
-  psql -U postgres -d rag -f /docker-entrypoint-initdb.d/02-ingestion.sql
+uv run --locked python -m rag.dev status
+uv run --locked python -m rag.dev test
+uv run --locked --env-file .env python -m rag.dev benchmark --repeat 3
 ```
 
-For an existing business database provisioned before Elasticsearch synchronization, apply the sync SQL once after the ingestion SQL. Existing queued sync jobs remain available to the new worker.
+Each integration or benchmark run uses its own database, bucket, and index in the same `rag-dev` services. This keeps queue claims, cleanup tests, and keyword index statistics local to that run. Resources and logs are retained. Find database, bucket, index, and outcome in `.rag/dev/<run>/run.json`. The benchmark also saves `benchmark.json`, including per-question ranks and timings. [Measured results](../docs/retrieval-results.md)
+
+`status` lists published sample documents and the resources created by each run. Inspect other databases by replacing `rag` in the PostgreSQL command with the recorded database name.
 
 ```sh
-docker compose --env-file docs/env/rag/.env -f docs/env/rag/compose.yaml exec -T postgres \
-  psql -U postgres -d rag -f /docker-entrypoint-initdb.d/03-sync.sql
+docker compose -p rag-dev --env-file docs/env/rag/.env -f docs/env/rag/compose.yaml \
+  exec postgres psql -U postgres -d rag
+curl -fsS http://127.0.0.1:59201/_cat/indices?v
 ```
 
-For a database initialized before retrieval was added, apply the retrieval permissions after the sync SQL.
-
-```sh
-docker compose --env-file docs/env/rag/.env -f docs/env/rag/compose.yaml exec -T postgres \
-  psql -U postgres -d rag -f /docker-entrypoint-initdb.d/04-retrieval.sql
-```
-
-In each terminal that uses storage, export the endpoint and local credentials. Create the private `rag-originals` bucket once.
-
-```sh
-. docs/env/rag/.env
-export RAG_S3_ENDPOINT="http://127.0.0.1:${RAG_S3_PORT:-59001}" RAG_S3_ACCESS_KEY RAG_S3_SECRET_KEY
-uv run --locked python -m rag.objects
-```
+Browse buckets and originals in the [S3 console](http://127.0.0.1:59002) using `RAG_S3_ACCESS_KEY` and `RAG_S3_SECRET_KEY` from the local configuration. Default host ports are PostgreSQL `55433`, S3 `59001`, S3 console `59002`, and ES `59201`. Compose `stop` pauses the containers while preserving all data volumes.
 
 ## Configure access
 
@@ -67,11 +53,12 @@ uv run --locked python -m rag.cli grant alpha "$rag_app_id" demo read
 
 ## Read a knowledge base
 
-Start the API in a second terminal with the restricted role.
+If the API is running through the development launcher, use that session. To run just the API, start it with the restricted role.
 
 ```sh
 . docs/env/rag/.env
 export RAG_ES_URL="http://127.0.0.1:${RAG_ES_PORT:-59201}"
+export RAG_S3_ENDPOINT="http://127.0.0.1:${RAG_S3_PORT:-59001}" RAG_S3_ACCESS_KEY RAG_S3_SECRET_KEY
 RAG_DATABASE_URL="postgresql://rag_api:$RAG_API_PASSWORD@127.0.0.1:${RAG_POSTGRES_PORT:-55433}/rag" \
   uv run --locked --env-file .env uvicorn rag.api:app --host 127.0.0.1 --port 8001
 ```
@@ -147,37 +134,6 @@ Use a result's `chunk_id` with `GET /v1/citations/{chunk_id}` for the source lin
 Use `PATCH /v1/documents/{document_id}/readers` with a write key to change the reader list. Send `{"readers":null}` to inherit library access, `{"readers":[]}` to deny reads, or a list of same-tenant application IDs. `DELETE /v1/documents/{document_id}` makes the document unavailable immediately and queues index cleanup.
 
 Hybrid responses report a failed recall path in `degraded`. A failed reranker returns the pre-reranking order. If PostgreSQL authorization cannot be verified, the service returns `503`.
-
-## Verify authorization
-
-Run the checks against a disposable local database. They provision isolated test tenants through the CLI and exercise the API and PostgreSQL policies.
-
-```sh
-. docs/env/rag/.env
-export RAG_ADMIN_DATABASE_URL="postgresql://rag_admin:$RAG_ADMIN_PASSWORD@127.0.0.1:${RAG_POSTGRES_PORT:-55433}/rag"
-export RAG_DATABASE_URL="postgresql://rag_api:$RAG_API_PASSWORD@127.0.0.1:${RAG_POSTGRES_PORT:-55433}/rag"
-uv run --locked python -m unittest discover -s tests -p test_authorization.py -v
-```
-
-For the full suite, use a disposable database, bucket, and Elasticsearch instance with both workers stopped. The tests use the e-commerce samples, exercise real storage and search, and inject model and Elasticsearch failures at the HTTP boundary.
-
-```sh
-export RAG_WORKER_DATABASE_URL="postgresql://rag_worker:$RAG_WORKER_PASSWORD@127.0.0.1:${RAG_POSTGRES_PORT:-55433}/rag"
-export RAG_SYNC_DATABASE_URL="postgresql://rag_sync:$RAG_SYNC_PASSWORD@127.0.0.1:${RAG_POSTGRES_PORT:-55433}/rag"
-export RAG_TEST_OWNER_URL="postgresql://postgres:$RAG_POSTGRES_PASSWORD@127.0.0.1:${RAG_POSTGRES_PORT:-55433}/rag"
-export RAG_ES_URL="http://127.0.0.1:${RAG_ES_PORT:-59201}"
-uv run --locked python -m unittest discover -s tests -v
-```
-
-## Benchmark retrieval
-
-Start the API and both workers against a disposable environment with an empty Elasticsearch index. Export `RAG_ADMIN_DATABASE_URL` in the benchmark terminal. The runner provisions two tenants, uploads the original corpus, verifies all gold citations, and records four modes over 30 questions. [Measured results](../docs/retrieval-results.md)
-
-```sh
-uv run --locked python -m rag.benchmark --repeat 3
-```
-
-The local report at `.rag/benchmark.json` contains per-question ranks, timings, corpus hashes, and observed intervals from publication to keyword availability.
 
 ## Verify Bailian model access
 

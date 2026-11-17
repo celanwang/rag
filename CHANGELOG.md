@@ -20,6 +20,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
 - Elasticsearch sync worker with revision-based cleanup, bounded retries, and searchable status in the ingestion job API.
 - Business retrieval API with pgvector, Elasticsearch, RRF, Bailian reranking, current-version citations, and original downloads.
 - Document reader controls, logical deletion, and a benchmark runner for the original 30 questions.
+- Persistent `rag-dev` workflow for browsing sample data and retaining integration and benchmark runs.
 
 ### Changed
 

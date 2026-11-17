@@ -10,11 +10,11 @@
 
 ## Env
 
-- RAG 业务服务 · [Compose 配置](env/rag/compose.yaml)、[权限 SQL](env/rag/schema.sql)、[入库 SQL](env/rag/ingestion.sql)、[索引同步 SQL](env/rag/sync.sql)、[检索权限 SQL](env/rag/retrieval.sql)、[运行与验收](../rag/README.md)
+- `rag-dev` · [Compose 配置](env/rag/compose.yaml)、[权限 SQL](env/rag/schema.sql)、[入库 SQL](env/rag/ingestion.sql)、[索引同步 SQL](env/rag/sync.sql)、[检索权限 SQL](env/rag/retrieval.sql)、[运行与验收](../rag/README.md#persistent-rag-dev)
 - 自研 PoC · [Compose 配置](env/poc/compose.yaml)、[PostgreSQL 初始化 SQL](env/poc/schema.sql)
 - RAGFlow 基线 · [Compose 配置](env/ragflow/compose.yaml)
 
-启动和检查命令见 [PoC 运行手册](../poc/README.md)。
+自研 PoC 和 RAGFlow 基线的启动和检查命令见 [PoC 运行手册](../poc/README.md)。
 
 ## Samples
 

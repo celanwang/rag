@@ -29,7 +29,7 @@ The PoC provides reproducible hybrid retrieval benchmarks and a RAGFlow baseline
 
 ## Development
 
-- [Run and verify the RAG service](rag/README.md)
+- [Start and inspect rag-dev](rag/README.md#persistent-rag-dev)
 - [Business retrieval benchmark](docs/retrieval-results.md)
 - [Run and verify the PoC](poc/README.md)
 - [Compose and database initialization files](docs/README.md#env)
