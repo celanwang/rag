@@ -49,6 +49,8 @@ class JobStatus:
     available_at: datetime
     published_version_id: UUID | None
     keyword_status: str
+    keyword_attempts: int | None
+    keyword_error: str | None
 
 
 def upload_mime(filename: str) -> str:
@@ -175,11 +177,15 @@ def job_status(pool: ConnectionPool, api_key: str, job: UUID) -> JobStatus:
             SELECT j.id, j.document, j.version, j.state, j.stage, j.attempts, j.error, j.available,
                    d.published,
                    CASE WHEN d.published IS NULL THEN 'not_published'
-                        WHEN d.synced = d.revision THEN 'synced' ELSE 'pending' END,
+                        WHEN d.synced = d.revision THEN 'synced'
+                        WHEN s.state IN ('retry', 'failed') THEN s.state ELSE 'pending' END,
+                   s.attempts, s.error,
                    l.code
             FROM jobs AS j
             JOIN documents AS d ON (d.tenant, d.library, d.id) = (j.tenant, j.library, j.document)
             JOIN libraries AS l ON (l.tenant, l.id) = (j.tenant, j.library)
+            LEFT JOIN jobs AS s ON (s.tenant, s.library, s.document) = (d.tenant, d.library, d.id)
+                               AND s.kind = 'sync' AND s.revision = d.revision
             WHERE j.id = %s AND j.tenant = %s AND j.kind = 'ingest'
             """,
             (job, identity.tenant),

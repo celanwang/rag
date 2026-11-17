@@ -3,34 +3,22 @@ import hashlib
 import json
 import logging
 import os
-import time
-from contextlib import contextmanager
 from dataclasses import dataclass
+from functools import partial
 from uuid import UUID, uuid5
 
 import httpx
 import psycopg
 from psycopg.types.json import Jsonb
 
-from .db import SCHEMA_OPTIONS, set_tenant
+from .jobs import (
+    LEASE_SECONDS, Lease, LeaseLost, complete, fail_in_transaction, lock_lease, run_worker, tenant_transaction,
+)
 from .models import EMBEDDING_BATCH_SIZE, BailianModels, ModelError
 from .objects import ObjectStore, StorageError
 from .text import CONFIG, MAX_UPLOAD_BYTES, Chunk, InvalidText, decode_text, split_text
 
 logger = logging.getLogger(__name__)
-MAX_ATTEMPTS = 4
-LEASE_SECONDS = 120
-
-
-class LeaseLost(Exception):
-    pass
-
-
-@dataclass(frozen=True)
-class Lease:
-    job: UUID
-    tenant: UUID
-    token: UUID
 
 
 @dataclass(frozen=True)
@@ -42,20 +30,6 @@ class Source:
     path: str
     checksum: bytes
     config: dict
-
-
-@contextmanager
-def tenant_transaction(conn: psycopg.Connection, lease: Lease):
-    with conn.transaction():
-        set_tenant(conn, lease.tenant)
-        yield
-
-
-def claim(conn: psycopg.Connection) -> Lease | None:
-    row = conn.execute(
-        "SELECT id, tenant, lease FROM rag.claim_ingest(%s, %s)", (MAX_ATTEMPTS, LEASE_SECONDS),
-    ).fetchone()
-    return Lease(*row) if row and row[2] else None
 
 
 def read_source(conn: psycopg.Connection, lease: Lease) -> Source:
@@ -89,23 +63,6 @@ def advance(conn: psycopg.Connection, lease: Lease, stage: str) -> None:
             raise LeaseLost
 
 
-def fail_in_transaction(conn: psycopg.Connection, lease: Lease, error: str, retryable: bool) -> str:
-    row = conn.execute(
-        """
-        UPDATE jobs
-        SET state = CASE WHEN %s AND attempts < %s THEN 'retry' ELSE 'failed' END,
-            available = clock_timestamp() + power(2, attempts) * interval '1 second',
-            lease = NULL, deadline = NULL, error = %s
-        WHERE id = %s AND lease = %s AND deadline > clock_timestamp()
-        RETURNING state
-        """,
-        (retryable, MAX_ATTEMPTS, error, lease.job, lease.token),
-    ).fetchone()
-    if row is None:
-        raise LeaseLost
-    return row[0]
-
-
 def publish(
     conn: psycopg.Connection, lease: Lease, source: Source,
     chunks: list[Chunk], vectors: list[list[float]],
@@ -115,16 +72,7 @@ def publish(
             "SELECT target, deleted FROM documents WHERE id = %s AND library = %s FOR UPDATE",
             (source.document, source.library),
         ).fetchone()
-        owned = conn.execute(
-            """
-            SELECT id FROM jobs
-            WHERE id = %s AND lease = %s AND deadline > clock_timestamp()
-            FOR UPDATE
-            """,
-            (lease.job, lease.token),
-        ).fetchone()
-        if owned is None:
-            raise LeaseLost
+        lock_lease(conn, lease)
         if not document or document[0] != source.version or document[1] is not None:
             fail_in_transaction(conn, lease, "superseded", retryable=False)
             return False
@@ -156,16 +104,7 @@ def publish(
             """,
             (lease.tenant, source.library, source.document, revision),
         )
-        done = conn.execute(
-            """
-            UPDATE jobs SET state = 'done', stage = 'published', lease = NULL, deadline = NULL, error = NULL
-            WHERE id = %s AND lease = %s AND deadline > clock_timestamp()
-            RETURNING id
-            """,
-            (lease.job, lease.token),
-        ).fetchone()
-        if done is None:
-            raise LeaseLost
+        complete(conn, lease, "published")
         return True
 
 
@@ -230,22 +169,7 @@ def main() -> None:
     objects = ObjectStore.from_env()
     try:
         with BailianModels.from_env() as models:
-            while True:
-                try:
-                    with psycopg.connect(dsn, autocommit=True, connect_timeout=5, options=SCHEMA_OPTIONS) as conn:
-                        while True:
-                            lease = claim(conn)
-                            if lease:
-                                process(conn, lease, objects, models)
-                            if args.once:
-                                return
-                            if not lease:
-                                time.sleep(1)
-                except psycopg.Error as error:
-                    if args.once:
-                        raise SystemExit(f"Worker database operation failed ({type(error).__name__}).") from None
-                    logger.error("Worker database operation failed (%s)", type(error).__name__)
-                    time.sleep(2)
+            run_worker(dsn, "ingest", partial(process, objects=objects, models=models), once=args.once)
     except KeyboardInterrupt:
         pass
     finally:
