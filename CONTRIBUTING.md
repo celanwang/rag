@@ -16,7 +16,7 @@ docs(design): define asynchronous document ingestion
 
 ## Verification
 
-Run `uv lock --check` after dependency changes. Run business integration checks and benchmarks through `rag.dev` so each run is retained in the local `rag-dev` environment. Run the relevant PoC checks when changing a baseline. Record the verification commands and results with the change or its review. [Business verification](rag/README.md#persistent-rag-dev) · [PoC verification](poc/README.md)
+Run `uv lock --check` after Python project metadata or dependency changes. Run business integration checks and benchmarks through `rag.dev` so each run is retained in the local `rag-dev` environment. Run the relevant PoC checks when changing a baseline. For workbench changes, run `npm --prefix frontend run build` and verify the relevant browser flows against `rag-dev`. Record the verification commands and results with the change or its review. [Business verification](rag/README.md#persistent-rag-dev) · [PoC verification](poc/README.md) · [Workbench verification](frontend/README.md#验收)
 
 Reference the design for changes that affect interfaces, authorization, or document lifecycle. [System design](docs/plan/design.md)
 

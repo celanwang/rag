@@ -16,9 +16,10 @@
 
 ## Other
 
+- [本地工作台](../frontend/README.md) · 样例工作区、前端启动和浏览器验收
 - [当前实现与数据流](other/implementation-review.md) · 代码拆解、发布和检索时序、实测发现与演进优先级
 - [PoC 验证报告](other/poc-results.md) · 自研检索消融、RAGFlow 对照和隔离实测
-- [业务检索验收](other/retrieval-results.md) · 电商端到端验证、故障降级和 30 题实测
+- [业务检索验收](other/retrieval-results.md) · 电商与浏览器联调、故障降级和检索回归
 
 ## Samples
 

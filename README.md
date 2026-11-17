@@ -9,10 +9,13 @@ A multi-tenant retrieval-augmented generation (RAG) service.
 - Tenant-scoped document, version, and job storage.
 - Asynchronous keyword index synchronization for published documents.
 - Vector, keyword, and hybrid retrieval with optional reranking, source citations, and original downloads.
+- Local web workbench for tenant-scoped retrieval, document browsing, and ingestion.
 
 ## Architecture
 
 The service lives in `rag/`. PostgreSQL stores permissions, document versions, original bytes, and jobs. The ingestion worker stores Bailian embeddings in pgvector. A separate worker synchronizes the current version to Elasticsearch. The FastAPI retrieval endpoint combines both recall paths and checks evidence against PostgreSQL.
+
+The React workbench runs on loopback. Its local proxy attaches the selected workspace's application credentials to FastAPI requests. [Local workbench](frontend/README.md)
 
 The PoC provides reproducible hybrid retrieval benchmarks and a RAGFlow baseline. [Validation results](docs/other/poc-results.md)
 
@@ -21,6 +24,7 @@ The PoC provides reproducible hybrid retrieval benchmarks and a RAGFlow baseline
 ## Tech Stack
 
 - Python and FastAPI
+- React, TypeScript, and Vite
 - PostgreSQL and pgvector
 - Elasticsearch
 - Alibaba Cloud Bailian

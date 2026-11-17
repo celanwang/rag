@@ -24,6 +24,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
 - Tenant-scoped retention cleanup for expired PostgreSQL document versions, originals, and chunks with a dry run and preserved upload receipts.
 - Eight labelled retrieval failure cases and an isolated benchmark for candidate coverage and misleading top results.
 - Eleven follow-up retrieval cases covering question variants, policy date boundaries, and source precedence.
+- A local web workbench for workspace switching, retrieval diagnostics, document browsing, and ingestion job tracking.
+- Authorized knowledge base and published-document catalog endpoints with filename filtering and pagination.
 
 ### Changed
 
@@ -33,6 +35,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
 - Consolidate the RAG database bootstrap into one SQL baseline, upgrade retained databases by schema version, and group implementation and verification reports under `docs/other/`.
 - Give higher-ranked recall candidates more influence in RRF to preserve early evidence found by a single branch.
 - Validate both benchmark suites against one JSON schema and report which gold chunks were missed during recall or fell outside the prefinal cutoff.
+- Align the Python project name with `rag`.
 
 ### Removed
 
@@ -42,3 +45,4 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
 
 - Tenant-scoped PostgreSQL policies and authorization checks before candidate text, citations, or retrieval results are returned.
 - JSON audit events for authorization changes and document deletion, with request IDs propagated through ingestion and Elasticsearch synchronization.
+- Keep application credentials in the local proxy and enforce workspace-scoped read and write access in the API.

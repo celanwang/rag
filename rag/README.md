@@ -13,7 +13,7 @@ uv run --locked --env-file .env python -m rag.dev demo
 uv run --locked --env-file .env python -m rag.dev serve
 ```
 
-Run `serve` in a separate terminal to keep the API and both workers running. Open [API documentation](http://127.0.0.1:8001/docs) to browse the endpoints. The demo creates two sample tenants in the main `rag` database and writes read-only keys to the run's local `readers.json`. Use a key from that file in the API docs and query its `shop` knowledge base.
+Run `serve` in a separate terminal to keep the API and both workers running. The demo creates two sample tenants in the main `rag` database and saves their read and write application keys in `.rag/dev/<run>/readers.json`. The local workbench loads the latest successful demo. For direct API calls, use the `key` field to read the tenant's `shop` knowledge base or `writer_key` for writes. [Local workbench](../frontend/README.md) · [API documentation](http://127.0.0.1:8001/docs)
 
 `up` reuses the PostgreSQL and Elasticsearch volumes. An empty database initializes from `schema.sql`. For an existing database, `up` checks the version recorded in the `rag` schema comment. Local credentials are stored in `docs/env/rag/.env`. [Compose config](../docs/env/rag/compose.yaml) · [Database design](../docs/plan/schema.md)
 
