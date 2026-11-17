@@ -40,6 +40,8 @@
 
 查询先验证知识库范围，再并行请求 pgvector 和 ES。两路共用块 ID。候选在读取正文前经 PG 授权复核，随后可用 RRF 合并并执行精排。返回前复核证据有效性。证据提供文件、版本和原文位置。首批引用和下载面向当前已发布版本，打开时再次鉴权。
 
+混合检索在一路召回不可用时，使用另一路并在 `degraded` 中标记故障分支。精排不可用时保留融合顺序。若选定的召回路径全部失败，或任一次 PostgreSQL 权限复核失败，请求返回 `503`。
+
 业务服务使用阿里云百炼。入库和查询使用 `text-embedding-v4` 的 512 维向量，分别指定文档和查询输入类型。精排使用 `qwen3-rerank`。更换向量模型时重新生成已有文档的向量。
 
 | 接口 | 首批行为 |
@@ -47,8 +49,9 @@
 | `GET /v1/knowledge-bases/{code}` | 按调用应用所属租户和知识库读权限返回库的 ID、短码及名称。 |
 | `POST /v1/knowledge-bases/{code}/documents` | 请求体为不超过 256 KiB 的 UTF-8 Markdown/TXT 原件，查询参数为 `filename`，请求头包含 `Idempotency-Key`。更新时传入 `document_id`。受理后返回 `202` 及文档、版本和任务 ID。 |
 | `GET /v1/ingestion-jobs/{id}` | 查看入库阶段、重试、失败原因、发布版本和关键词同步状态。 |
+| `PATCH /v1/documents/{id}/readers` | 需知识库写权限。`null` 继承库读权限，空数组拒绝读取，名单仅允许同租户应用。变更时提交 ES 同步任务。 |
 | `DELETE /v1/documents/{id}` | 提交逻辑删除和 ES 同步任务。 |
-| `POST /v1/retrieve` | 查询有权限的证据，支持单路、RRF 和精排，响应记录降级分支。 |
+| `POST /v1/retrieve` | 按 `knowledge_base_code` 和 `question` 查询。支持 `vector`、`keyword`、`rrf` 和 `rerank`，默认 `rrf`。 |
 | `GET /v1/citations/{id}` | 按当前权限返回证据和原文位置。 |
 | `GET /v1/documents/{id}/file` | 校验权限并下载当前发布版本的原件。 |
 
