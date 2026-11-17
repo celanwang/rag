@@ -11,6 +11,12 @@ import httpx
 INDEX_NAME = "rag-chunks-v1"
 ES_URL = "http://127.0.0.1:59201"
 BATCH_SIZE = 200
+UPSERT_CHUNK = """
+if (ctx._source.containsKey('revision') && ctx._source.revision > params.doc.revision) {
+    throw new IllegalArgumentException('stale chunk revision');
+}
+ctx._source.putAll(params.doc);
+"""
 IDENTIFIER = re.compile(r"(?<![A-Za-z0-9])[A-Za-z]{2,}(?:[-_][A-Za-z]+)*[-_]?\d+[A-Za-z0-9]*(?![A-Za-z0-9])")
 
 
@@ -49,11 +55,12 @@ def response_json(response: httpx.Response) -> dict:
 
 
 class KeywordIndex:
-    def __init__(self, client: httpx.Client, index: str = INDEX_NAME):
+    def __init__(self, client: httpx.Client, index: str = INDEX_NAME, *, require_alias: bool = False):
         if not re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,254}", index):
             raise ValueError("RAG_ES_INDEX must be a lowercase Elasticsearch index name")
         self.client = client
         self.path = f"/{index}"
+        self.require_alias = require_alias
 
     @classmethod
     @contextmanager
@@ -63,9 +70,25 @@ class KeywordIndex:
         with httpx.Client(
             base_url=os.getenv("RAG_ES_URL", ES_URL), headers=headers, timeout=10, trust_env=False,
         ) as client:
-            yield cls(client, os.getenv("RAG_ES_INDEX", INDEX_NAME))
+            yield cls(client, os.getenv("RAG_ES_INDEX", INDEX_NAME),
+                      require_alias=os.getenv("RAG_ES_REQUIRE_ALIAS") == "1")
 
     def initialize(self) -> None:
+        if self.require_alias:
+            alias = self.client.get(f"/_alias{self.path}")
+            if alias.status_code == 404:
+                raise KeywordIndexError("The active write alias is missing")
+            targets = response_json(alias)
+            if len(targets) != 1 or not next(iter(targets.values())).get("aliases", {}).get(
+                self.path[1:], {},
+            ).get("is_write_index"):
+                raise KeywordIndexError("Expected a single active write index")
+            return
+        existing = self.client.head(self.path)
+        if existing.status_code == 200:
+            return
+        if existing.status_code != 404:
+            existing.raise_for_status()
         fields = {
             name: {"type": "keyword"} for name in (
                 "tenant_id", "knowledge_base_id", "document_id", "version_id", "chunk_id", "readers", "identifiers",
@@ -103,12 +126,16 @@ class KeywordIndex:
             lines = []
             for chunk in batch:
                 chunk_id = str(chunk.id)
-                lines.append(json.dumps({
-                    "index": {"_id": chunk_id, "version": revision, "version_type": "external_gte"},
-                }))
-                lines.append(json.dumps({
+                doc = {
                     **metadata, "chunk_id": chunk_id, "filename": chunk.filename, "heading": chunk.heading,
                     "body": chunk.body, "identifiers": identifiers(f"{chunk.filename} {chunk.heading or ''} {chunk.body}"),
+                }
+                # Use the logical revision in the payload. ES internal delete tombstones can
+                # outlive a missing chunk and use a higher storage version than its PG revision.
+                lines.append(json.dumps({"update": {"_id": chunk_id, "retry_on_conflict": 3}}))
+                lines.append(json.dumps({
+                    "script": {"source": UPSERT_CHUNK, "params": {"doc": doc}},
+                    "upsert": doc,
                 }, ensure_ascii=False))
             response = self.client.post(
                 f"{self.path}/_bulk", content=("\n".join(lines) + "\n").encode(),
@@ -120,7 +147,7 @@ class KeywordIndex:
                 raise KeywordIndexError("Elasticsearch did not index the entire batch")
             try:
                 complete = all(
-                    item["index"]["status"] in (200, 201) and item["index"]["_shards"]["failed"] == 0
+                    item["update"]["status"] in (200, 201) and item["update"]["_shards"]["failed"] == 0
                     for item in items
                 )
             except (KeyError, TypeError):
