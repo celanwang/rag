@@ -65,7 +65,7 @@ CREATE TABLE documents (
     FOREIGN KEY (tenant, library) REFERENCES libraries (tenant, id)
 );
 
--- 保存每个文档版本的原件位置、指纹和处理配置。
+-- 保存每个文档版本的原始字节、指纹和处理配置。
 CREATE TABLE versions (
     id        uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant    uuid NOT NULL,
@@ -74,7 +74,7 @@ CREATE TABLE versions (
     number    integer NOT NULL CHECK (number > 0),
     filename  text NOT NULL,
     mime      text NOT NULL,
-    path      text NOT NULL UNIQUE, -- 对象存储键
+    content   bytea NOT NULL CHECK (octet_length(content) BETWEEN 1 AND 262144),
     checksum  bytea NOT NULL CHECK (octet_length(checksum) = 32),  -- 原件的 SHA-256
     config    jsonb NOT NULL,       -- 解析、切分和嵌入配置快照
     UNIQUE (document, number),

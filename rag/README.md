@@ -15,7 +15,7 @@ uv run --locked --env-file .env python -m rag.dev serve
 
 Run `serve` in a separate terminal to keep the API and both workers running. Open [API documentation](http://127.0.0.1:8001/docs) to browse the endpoints. The demo creates two sample tenants in the main `rag` database and writes read-only keys to the run's local `readers.json`. Use a key from that file in the API docs and query its `shop` knowledge base.
 
-`up` reuses the existing PostgreSQL, S3, and Elasticsearch volumes and applies missing SQL stages. Local credentials are stored in `docs/env/rag/.env`. [Compose config](../docs/env/rag/compose.yaml)
+`up` reuses the PostgreSQL and Elasticsearch volumes and applies missing SQL stages. PostgreSQL stores the original bytes in each version. Local credentials are stored in `docs/env/rag/.env`. [Compose config](../docs/env/rag/compose.yaml)
 
 ```sh
 uv run --locked python -m rag.dev status
@@ -23,7 +23,7 @@ uv run --locked python -m rag.dev test
 uv run --locked --env-file .env python -m rag.dev benchmark --repeat 3
 ```
 
-Each integration or benchmark run uses its own database, bucket, and index in the same `rag-dev` services. This keeps queue claims, cleanup tests, and keyword index statistics local to that run. Resources and logs are retained. Find database, bucket, index, and outcome in `.rag/dev/<run>/run.json`. The benchmark also saves `benchmark.json`, including per-question ranks and timings. [Measured results](../docs/retrieval-results.md)
+Each integration or benchmark run uses its own database and Elasticsearch index in the same `rag-dev` services. This keeps queue claims and keyword index statistics local to that run. Resources and logs are retained. Find the database, index, and outcome in `.rag/dev/<run>/run.json`. The benchmark also saves `benchmark.json`, including per-question ranks and timings. [Measured results](../docs/retrieval-results.md)
 
 `status` lists published sample documents and the resources created by each run. Inspect other databases by replacing `rag` in the PostgreSQL command with the recorded database name.
 
@@ -33,7 +33,18 @@ docker compose -p rag-dev --env-file docs/env/rag/.env -f docs/env/rag/compose.y
 curl -fsS http://127.0.0.1:59201/_cat/indices?v
 ```
 
-Browse buckets and originals in the [S3 console](http://127.0.0.1:59002) using `RAG_S3_ACCESS_KEY` and `RAG_S3_SECRET_KEY` from the local configuration. Default host ports are PostgreSQL `55433`, S3 `59001`, S3 console `59002`, and ES `59201`. Compose `stop` pauses the containers while preserving all data volumes.
+Default host ports are PostgreSQL `55433` and Elasticsearch `59201`. Compose `stop` pauses both containers and retains their data volumes.
+
+### Migrate originals from an earlier rag-dev
+
+Stop the API and workers and keep PostgreSQL and the legacy object service running during the transfer. The migration uses the existing local credentials and the bucket names recorded for retained runs. It checks each file against its SHA-256 before storing it. After the transfer succeeds, remove the legacy object container and start the current Compose environment. Docker retains the old object volume.
+
+```sh
+uv run --locked --with minio==7.2.18 python -m rag.migrate_originals
+docker stop rag-dev-objects-1
+docker rm rag-dev-objects-1
+uv run --locked python -m rag.dev up
+```
 
 ## Configure access
 
@@ -58,7 +69,6 @@ If the API is running through the development launcher, use that session. To run
 ```sh
 . docs/env/rag/.env
 export RAG_ES_URL="http://127.0.0.1:${RAG_ES_PORT:-59201}"
-export RAG_S3_ENDPOINT="http://127.0.0.1:${RAG_S3_PORT:-59001}" RAG_S3_ACCESS_KEY RAG_S3_SECRET_KEY
 RAG_DATABASE_URL="postgresql://rag_api:$RAG_API_PASSWORD@127.0.0.1:${RAG_POSTGRES_PORT:-55433}/rag" \
   uv run --locked --env-file .env uvicorn rag.api:app --host 127.0.0.1 --port 8001
 ```
@@ -75,7 +85,7 @@ curl -sS -i -H "Authorization: Bearer $rag_app_key" http://127.0.0.1:8001/v1/kno
 
 ## Upload and publish
 
-With the API running and the storage variables exported in its terminal, grant the application `write`. Send the original bytes with a `filename` query parameter and an `Idempotency-Key` header. The upload accepts UTF-8 `.md` and `.txt` up to 256 KiB.
+With the API running, grant the application `write`. Send the original bytes with a `filename` query parameter and an `Idempotency-Key` header. The upload accepts UTF-8 `.md` and `.txt` up to 256 KiB.
 
 ```sh
 uv run --locked python -m rag.cli grant alpha "$rag_app_id" demo write
@@ -89,7 +99,7 @@ rag_job_id="$(printf '%s' "$rag_submission" | uv run --locked python -c 'import 
 
 The API returns `202` with `job_id`, `document_id`, and `version_id`. Repeating the same upload with the same key returns those IDs. A different upload with the same key returns `409`. To update an existing document, pass its `document_id` as another query parameter and use a new key.
 
-Run the worker in a terminal with the storage variables exported and the Bailian key in the repository root `.env`.
+Run the worker with the Bailian key in the repository root `.env`.
 
 ```sh
 . docs/env/rag/.env
@@ -97,13 +107,11 @@ export RAG_WORKER_DATABASE_URL="postgresql://rag_worker:$RAG_WORKER_PASSWORD@127
 uv run --locked --env-file .env python -m rag.worker
 ```
 
-Check the job from the upload terminal. After publication it has `state=done` and `stage=published`. A temporary model or storage error schedules a retry, up to four total attempts. An expired lease makes the job claimable again.
+Check the job from the upload terminal. After publication it has `state=done` and `stage=published`. A temporary model error schedules a retry, up to four total attempts. An expired lease makes the job claimable again.
 
 ```sh
 curl -fsS -H "Authorization: Bearer $rag_app_key" "http://127.0.0.1:8001/v1/ingestion-jobs/$rag_job_id"
 ```
-
-With the admin database and storage variables exported, `uv run --locked python -m rag.objects --prune` removes unreferenced originals older than 24 hours.
 
 ## Synchronize the keyword index
 

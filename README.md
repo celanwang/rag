@@ -12,7 +12,7 @@ A multi-tenant retrieval-augmented generation (RAG) service.
 
 ## Architecture
 
-The service lives in `rag/`. PostgreSQL tracks permissions and published versions. The ingestion worker reads originals from S3-compatible storage and stores Bailian embeddings in pgvector. A separate worker synchronizes the current version to Elasticsearch. The FastAPI retrieval endpoint combines both recall paths and checks evidence against PostgreSQL.
+The service lives in `rag/`. PostgreSQL stores permissions, document versions, original bytes, and jobs. The ingestion worker stores Bailian embeddings in pgvector. A separate worker synchronizes the current version to Elasticsearch. The FastAPI retrieval endpoint combines both recall paths and checks evidence against PostgreSQL.
 
 The PoC provides reproducible hybrid retrieval benchmarks and a RAGFlow baseline. [Validation results](docs/poc-results.md)
 
@@ -23,7 +23,6 @@ The PoC provides reproducible hybrid retrieval benchmarks and a RAGFlow baseline
 - Python and FastAPI
 - PostgreSQL and pgvector
 - Elasticsearch
-- S3-compatible object storage
 - Alibaba Cloud Bailian
 - Docker Compose and uv
 
