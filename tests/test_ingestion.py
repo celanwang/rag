@@ -11,7 +11,7 @@ import psycopg
 from fastapi.testclient import TestClient
 
 from rag.api import app
-from rag.auth import set_tenant
+from rag.db import SCHEMA_OPTIONS, set_tenant
 from rag.models import BailianModels
 from rag.objects import ObjectStore
 from rag.text import MAX_UPLOAD_BYTES
@@ -46,7 +46,9 @@ class IngestionTest(unittest.TestCase):
 
     def setUp(self):
         self.owner = self.enterContext(psycopg.connect(os.environ["RAG_TEST_OWNER_URL"], autocommit=True))
-        self.worker = self.enterContext(psycopg.connect(os.environ["RAG_WORKER_DATABASE_URL"], autocommit=True))
+        self.worker = self.enterContext(psycopg.connect(
+            os.environ["RAG_WORKER_DATABASE_URL"], autocommit=True, options=SCHEMA_OPTIONS,
+        ))
         suffix = uuid4().hex[:12]
         self.alpha = f"shop-alpha-{suffix}"
         self.beta = f"shop-beta-{suffix}"
@@ -214,8 +216,8 @@ class IngestionTest(unittest.TestCase):
         self.process(beta)
         with self.worker.transaction():
             set_tenant(self.worker, self.alpha_id)
-            self.assertEqual(self.worker.execute("SELECT tenant::text FROM rag.versions").fetchall(), [(self.alpha_id,)])
-        self.assertEqual(self.worker.execute("SELECT path FROM rag.versions").fetchall(), [])
+            self.assertEqual(self.worker.execute("SELECT tenant::text FROM versions").fetchall(), [(self.alpha_id,)])
+        self.assertEqual(self.worker.execute("SELECT path FROM versions").fetchall(), [])
         cli("revoke", self.alpha, self.writer["id"], "shop", "write")
         self.assertEqual(self.status(alpha).status_code, 403)
         self.assertEqual(self.upload(request="again").status_code, 403)
@@ -227,7 +229,7 @@ class IngestionTest(unittest.TestCase):
         orphan = f"originals/{self.alpha_id}/orphan"
         self.store.put(orphan, b"orphan", "text/plain")
         cutoff = datetime.now(timezone.utc) + timedelta(seconds=1)
-        with psycopg.connect(os.environ["RAG_ADMIN_DATABASE_URL"], autocommit=True) as conn:
+        with psycopg.connect(os.environ["RAG_ADMIN_DATABASE_URL"], autocommit=True, options=SCHEMA_OPTIONS) as conn:
             self.assertGreaterEqual(self.store.prune(conn, cutoff), 1)
         self.assertEqual(self.store.get(path, MAX_UPLOAD_BYTES), (SAMPLES / "alpha/returns.md").read_bytes())
         self.assertEqual(self.originals(), [path])

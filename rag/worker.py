@@ -12,7 +12,7 @@ import httpx
 import psycopg
 from psycopg.types.json import Jsonb
 
-from .auth import set_tenant
+from .db import SCHEMA_OPTIONS, set_tenant
 from .models import EMBEDDING_BATCH_SIZE, BailianModels, ModelError
 from .objects import ObjectStore, StorageError
 from .text import CONFIG, MAX_UPLOAD_BYTES, Chunk, InvalidText, decode_text, split_text
@@ -63,8 +63,8 @@ def read_source(conn: psycopg.Connection, lease: Lease) -> Source:
         row = conn.execute(
             """
             SELECT v.library, v.document, v.id, v.mime, v.path, v.checksum, v.config
-            FROM rag.jobs AS j
-            JOIN rag.versions AS v
+            FROM jobs AS j
+            JOIN versions AS v
               ON (v.tenant, v.library, v.document, v.id) = (j.tenant, j.library, j.document, j.version)
             WHERE j.id = %s AND j.lease = %s AND j.deadline > clock_timestamp()
             """,
@@ -79,7 +79,7 @@ def advance(conn: psycopg.Connection, lease: Lease, stage: str) -> None:
     with tenant_transaction(conn, lease):
         row = conn.execute(
             """
-            UPDATE rag.jobs SET stage = %s, deadline = clock_timestamp() + %s * interval '1 second'
+            UPDATE jobs SET stage = %s, deadline = clock_timestamp() + %s * interval '1 second'
             WHERE id = %s AND lease = %s AND deadline > clock_timestamp()
             RETURNING id
             """,
@@ -92,7 +92,7 @@ def advance(conn: psycopg.Connection, lease: Lease, stage: str) -> None:
 def fail_in_transaction(conn: psycopg.Connection, lease: Lease, error: str, retryable: bool) -> str:
     row = conn.execute(
         """
-        UPDATE rag.jobs
+        UPDATE jobs
         SET state = CASE WHEN %s AND attempts < %s THEN 'retry' ELSE 'failed' END,
             available = clock_timestamp() + power(2, attempts) * interval '1 second',
             lease = NULL, deadline = NULL, error = %s
@@ -112,12 +112,12 @@ def publish(
 ) -> bool:
     with tenant_transaction(conn, lease):
         document = conn.execute(
-            "SELECT target, deleted FROM rag.documents WHERE id = %s AND library = %s FOR UPDATE",
+            "SELECT target, deleted FROM documents WHERE id = %s AND library = %s FOR UPDATE",
             (source.document, source.library),
         ).fetchone()
         owned = conn.execute(
             """
-            SELECT id FROM rag.jobs
+            SELECT id FROM jobs
             WHERE id = %s AND lease = %s AND deadline > clock_timestamp()
             FOR UPDATE
             """,
@@ -132,8 +132,8 @@ def publish(
         with conn.cursor() as cursor:
             cursor.executemany(
                 """
-                INSERT INTO rag.chunks (id, tenant, library, document, version, ordinal, heading, body, location, embedding)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s::vector)
+                INSERT INTO chunks (id, tenant, library, document, version, ordinal, heading, body, location, embedding)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s::public.vector)
                 """,
                 (
                     (
@@ -146,19 +146,19 @@ def publish(
                 ),
             )
         revision = conn.execute(
-            "UPDATE rag.documents SET published = %s, revision = revision + 1 WHERE id = %s RETURNING revision",
+            "UPDATE documents SET published = %s, revision = revision + 1 WHERE id = %s RETURNING revision",
             (source.version, source.document),
         ).fetchone()[0]
         conn.execute(
             """
-            INSERT INTO rag.jobs (tenant, library, document, kind, revision, stage)
+            INSERT INTO jobs (tenant, library, document, kind, revision, stage)
             VALUES (%s, %s, %s, 'sync', %s, 'accepted')
             """,
             (lease.tenant, source.library, source.document, revision),
         )
         done = conn.execute(
             """
-            UPDATE rag.jobs SET state = 'done', stage = 'published', lease = NULL, deadline = NULL, error = NULL
+            UPDATE jobs SET state = 'done', stage = 'published', lease = NULL, deadline = NULL, error = NULL
             WHERE id = %s AND lease = %s AND deadline > clock_timestamp()
             RETURNING id
             """,
@@ -232,7 +232,7 @@ def main() -> None:
         with BailianModels.from_env() as models:
             while True:
                 try:
-                    with psycopg.connect(dsn, autocommit=True, connect_timeout=5) as conn:
+                    with psycopg.connect(dsn, autocommit=True, connect_timeout=5, options=SCHEMA_OPTIONS) as conn:
                         while True:
                             lease = claim(conn)
                             if lease:

@@ -11,6 +11,7 @@ from psycopg_pool import ConnectionPool
 
 from rag.api import app
 from rag.auth import LibraryForbidden, app_session, require_library
+from rag.db import SCHEMA_OPTIONS
 
 
 def cli(*args: str, expected: int = 0) -> dict:
@@ -43,7 +44,8 @@ class AuthorizationTest(unittest.TestCase):
         cli("grant", cls.beta, cls.beta_reader["id"], "demo", "read")
         cls.client = cls.enterClassContext(TestClient(app))
         cls.pool = cls.enterClassContext(ConnectionPool(
-            cls.api_dsn, min_size=1, max_size=1, open=False, kwargs={"autocommit": True},
+            cls.api_dsn, min_size=1, max_size=1, open=False,
+            kwargs={"autocommit": True, "options": SCHEMA_OPTIONS},
         ))
 
     def read(self, key: str | None = None, code: str = "demo"):
@@ -109,22 +111,26 @@ class AuthorizationTest(unittest.TestCase):
         self.assertEqual(self.read(self.reader["key"]).status_code, 200)
 
     def test_database_role_and_pooled_tenant_context(self):
+        with self.pool.connection() as conn:
+            conn.execute("CREATE TEMP TABLE libraries (name text)")
+            conn.execute("INSERT INTO pg_temp.libraries VALUES ('Temporary library')")
         with app_session(self.pool, self.reader["key"]) as (conn, _):
             pid = conn.info.backend_pid
-            self.assertEqual(conn.execute("SELECT name FROM rag.libraries").fetchall(), [("Alpha demo",)])
-            self.assertEqual(conn.execute("SELECT DISTINCT tenant::text FROM rag.grants").fetchall(), [(self.alpha_id,)])
+            self.assertEqual(conn.execute("SELECT name FROM libraries").fetchall(), [("Alpha demo",)])
+            self.assertEqual(conn.execute("SELECT DISTINCT tenant::text FROM grants").fetchall(), [(self.alpha_id,)])
         with self.pool.connection() as conn:
             self.assertEqual(conn.info.backend_pid, pid)
-            self.assertEqual(conn.execute("SELECT name FROM rag.libraries").fetchall(), [])
-            self.assertEqual(conn.execute("SELECT tenant FROM rag.grants").fetchall(), [])
+            self.assertEqual(conn.execute("SELECT name FROM libraries").fetchall(), [])
+            self.assertEqual(conn.execute("SELECT tenant FROM grants").fetchall(), [])
             with self.assertRaises(psycopg.errors.InsufficientPrivilege):
-                conn.execute("SELECT digest FROM rag.apps")
+                conn.execute("SELECT digest FROM apps")
         with app_session(self.pool, self.beta_reader["key"]) as (conn, _):
             self.assertEqual(conn.info.backend_pid, pid)
             self.assertEqual(
-                {row[0] for row in conn.execute("SELECT name FROM rag.libraries")},
+                {row[0] for row in conn.execute("SELECT name FROM libraries")},
                 {"Beta demo", "Beta private"},
             )
+            conn.execute("DROP TABLE pg_temp.libraries")
 
     def test_cross_tenant_grant_cannot_be_created(self):
         cli("grant", self.alpha, self.beta_reader["id"], "demo", "read", expected=1)

@@ -71,7 +71,7 @@ def existing_submission(
     row = conn.execute(
         """
         SELECT id, document, version, fingerprint
-        FROM rag.jobs
+        FROM jobs
         WHERE tenant = %s AND library = %s AND app = %s AND request = %s AND kind = 'ingest'
         """,
         (identity.tenant, library, identity.app, key),
@@ -85,7 +85,7 @@ def existing_submission(
 
 def lock_document(conn: psycopg.Connection, library: UUID, document: UUID) -> None:
     row = conn.execute(
-        "SELECT id FROM rag.documents WHERE library = %s AND id = %s AND deleted IS NULL FOR UPDATE",
+        "SELECT id FROM documents WHERE library = %s AND id = %s AND deleted IS NULL FOR UPDATE",
         (library, document),
     ).fetchone()
     if row is None:
@@ -100,28 +100,28 @@ def record_submission(
     if document is None:
         document = uuid4()
         conn.execute(
-            "INSERT INTO rag.documents (id, tenant, library) VALUES (%s, %s, %s)",
+            "INSERT INTO documents (id, tenant, library) VALUES (%s, %s, %s)",
             (document, tenant, library),
         )
         number = 1
     else:
         lock_document(conn, library, document)
         number = conn.execute(
-            "SELECT COALESCE(MAX(number), 0) + 1 FROM rag.versions WHERE document = %s AND library = %s",
+            "SELECT COALESCE(MAX(number), 0) + 1 FROM versions WHERE document = %s AND library = %s",
             (document, library),
         ).fetchone()[0]
 
     conn.execute(
         """
-        INSERT INTO rag.versions (id, tenant, library, document, number, filename, mime, path, checksum, config)
+        INSERT INTO versions (id, tenant, library, document, number, filename, mime, path, checksum, config)
         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """,
         (version, tenant, library, document, number, filename, mime, path, checksum, Jsonb(CONFIG)),
     )
-    conn.execute("UPDATE rag.documents SET target = %s WHERE id = %s", (version, document))
+    conn.execute("UPDATE documents SET target = %s WHERE id = %s", (version, document))
     job = conn.execute(
         """
-        INSERT INTO rag.jobs (tenant, library, document, kind, app, version, request, fingerprint, stage)
+        INSERT INTO jobs (tenant, library, document, kind, app, version, request, fingerprint, stage)
         VALUES (%s, %s, %s, 'ingest', %s, %s, %s, %s, 'accepted') RETURNING id
         """,
         (tenant, library, document, identity.app, version, key, fingerprint),
@@ -148,7 +148,7 @@ def submit(
         if document is not None:
             # Check before writing the object and lock the document again when recording the version.
             visible = conn.execute(
-                "SELECT id FROM rag.documents WHERE library = %s AND id = %s AND deleted IS NULL",
+                "SELECT id FROM documents WHERE library = %s AND id = %s AND deleted IS NULL",
                 (library.id, document),
             ).fetchone()
             if visible is None:
@@ -177,9 +177,9 @@ def job_status(pool: ConnectionPool, api_key: str, job: UUID) -> JobStatus:
                    CASE WHEN d.published IS NULL THEN 'not_published'
                         WHEN d.synced = d.revision THEN 'synced' ELSE 'pending' END,
                    l.code
-            FROM rag.jobs AS j
-            JOIN rag.documents AS d ON (d.tenant, d.library, d.id) = (j.tenant, j.library, j.document)
-            JOIN rag.libraries AS l ON (l.tenant, l.id) = (j.tenant, j.library)
+            FROM jobs AS j
+            JOIN documents AS d ON (d.tenant, d.library, d.id) = (j.tenant, j.library, j.document)
+            JOIN libraries AS l ON (l.tenant, l.id) = (j.tenant, j.library)
             WHERE j.id = %s AND j.tenant = %s AND j.kind = 'ingest'
             """,
             (job, identity.tenant),

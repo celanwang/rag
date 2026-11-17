@@ -12,6 +12,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from psycopg_pool import ConnectionPool
 
 from .auth import InvalidKey, Library, LibraryForbidden, LibraryNotFound, app_session, require_library
+from .db import SCHEMA_OPTIONS
 from .ingest import DocumentNotFound, JobNotFound, JobStatus, RequestConflict, Submission, job_status, submit
 from .objects import ObjectStore, StorageError
 from .text import MAX_UPLOAD_BYTES, InvalidText
@@ -28,7 +29,7 @@ async def lifespan(app: FastAPI):
 
     pool = ConnectionPool(
         dsn, min_size=1, max_size=8, timeout=3, open=False,
-        kwargs={"autocommit": True, "options": "-c statement_timeout=3000"},
+        kwargs={"autocommit": True, "options": f"{SCHEMA_OPTIONS} -c statement_timeout=3000"},
     )
     objects = ObjectStore.from_env() if os.environ.get("RAG_S3_ENDPOINT") else None
     try:

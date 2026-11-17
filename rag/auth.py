@@ -8,6 +8,8 @@ from uuid import UUID
 import psycopg
 from psycopg_pool import ConnectionPool
 
+from .db import set_tenant
+
 Action = Literal["read", "write"]
 
 
@@ -40,10 +42,6 @@ def key_digest(key: str) -> bytes:
     return sha256(key.encode()).digest()
 
 
-def set_tenant(conn: psycopg.Connection, tenant: UUID) -> None:
-    conn.execute("SELECT set_config('rag.tenant_id', %s, true)", (str(tenant),))
-
-
 @contextmanager
 def app_session(pool: ConnectionPool, key: str) -> Iterator[tuple[psycopg.Connection, Identity]]:
     with pool.connection() as conn, conn.transaction():
@@ -60,8 +58,8 @@ def require_library(conn: psycopg.Connection, identity: Identity, code: str, act
     row = conn.execute(
         """
         SELECT l.id, l.code, l.name, g.app IS NOT NULL AS allowed
-        FROM rag.libraries AS l
-        LEFT JOIN rag.grants AS g
+        FROM libraries AS l
+        LEFT JOIN grants AS g
           ON g.tenant = l.tenant AND g.library = l.id AND g.app = %s AND g.action = %s
         WHERE l.tenant = %s AND l.code = %s
         """,

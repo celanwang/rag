@@ -10,6 +10,8 @@ from minio.error import InvalidResponseError, S3Error, ServerError
 from urllib3 import PoolManager, Retry, Timeout
 from urllib3.exceptions import HTTPError
 
+from .db import SCHEMA_OPTIONS
+
 OBJECT_ERRORS = (S3Error, InvalidResponseError, ServerError, HTTPError)
 
 
@@ -84,7 +86,7 @@ class ObjectStore:
             key = entry.object_name
             with conn.transaction():
                 lock_object(conn, key)
-                if conn.execute("SELECT 1 FROM rag.versions WHERE path = %s", (key,)).fetchone() is None:
+                if conn.execute("SELECT 1 FROM versions WHERE path = %s", (key,)).fetchone() is None:
                     self.client.remove_object(self.bucket, key)
                     removed += 1
         return removed
@@ -104,7 +106,7 @@ def main() -> None:
             dsn = os.environ.get("RAG_ADMIN_DATABASE_URL")
             if not dsn:
                 parser.error("set RAG_ADMIN_DATABASE_URL before pruning originals")
-            with psycopg.connect(dsn, autocommit=True, connect_timeout=5) as conn:
+            with psycopg.connect(dsn, autocommit=True, connect_timeout=5, options=SCHEMA_OPTIONS) as conn:
                 removed = store.prune(conn, datetime.now(timezone.utc) - timedelta(hours=24))
             print(f"Unreferenced originals removed: {removed}")
         else:

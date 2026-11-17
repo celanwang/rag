@@ -4,6 +4,8 @@
 
 独立环境先初始化身份和授权表，再初始化文档、版本、切片和任务表。 [权限 SQL](../env/rag/schema.sql) · [入库 SQL](../env/rag/ingestion.sql)
 
+业务表位于 `rag` schema。API、Worker 和 CLI 在连接时设置 `search_path`，日常查询直接使用 `documents` 等表名。建表 SQL 和 `SECURITY DEFINER` 函数中的表引用使用 schema 限定名。
+
 ```sql
 CREATE EXTENSION IF NOT EXISTS vector;
 

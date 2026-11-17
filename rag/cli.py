@@ -9,6 +9,7 @@ from uuid import UUID
 import psycopg
 
 from .auth import key_digest
+from .db import SCHEMA_OPTIONS
 
 
 class ConfigurationError(Exception):
@@ -39,7 +40,7 @@ def expires_at(value: str) -> datetime:
 
 
 def tenant_id(conn: psycopg.Connection, code: str) -> UUID:
-    row = conn.execute("SELECT id FROM rag.tenants WHERE code = %s", (code,)).fetchone()
+    row = conn.execute("SELECT id FROM tenants WHERE code = %s", (code,)).fetchone()
     if row is None:
         raise ConfigurationError("Tenant not found.")
     return row[0]
@@ -47,7 +48,7 @@ def tenant_id(conn: psycopg.Connection, code: str) -> UUID:
 
 def create_tenant(conn: psycopg.Connection, args: argparse.Namespace) -> dict:
     row = conn.execute(
-        "INSERT INTO rag.tenants (code, name) VALUES (%s, %s) RETURNING id",
+        "INSERT INTO tenants (code, name) VALUES (%s, %s) RETURNING id",
         (args.tenant, args.name),
     ).fetchone()
     return {"id": str(row[0])}
@@ -57,7 +58,7 @@ def register_app(conn: psycopg.Connection, args: argparse.Namespace) -> dict:
     tenant = tenant_id(conn, args.tenant)
     key = f"rag_{token_urlsafe(32)}"
     row = conn.execute(
-        "INSERT INTO rag.apps (tenant, name, digest, expires) VALUES (%s, %s, %s, %s) RETURNING id",
+        "INSERT INTO apps (tenant, name, digest, expires) VALUES (%s, %s, %s, %s) RETURNING id",
         (tenant, args.name, key_digest(key), args.expires),
     ).fetchone()
     return {"id": str(row[0]), "key": key}
@@ -66,7 +67,7 @@ def register_app(conn: psycopg.Connection, args: argparse.Namespace) -> dict:
 def create_library(conn: psycopg.Connection, args: argparse.Namespace) -> dict:
     tenant = tenant_id(conn, args.tenant)
     row = conn.execute(
-        "INSERT INTO rag.libraries (tenant, code, name) VALUES (%s, %s, %s) RETURNING id",
+        "INSERT INTO libraries (tenant, code, name) VALUES (%s, %s, %s) RETURNING id",
         (tenant, args.code, args.name),
     ).fetchone()
     return {"id": str(row[0])}
@@ -75,13 +76,13 @@ def create_library(conn: psycopg.Connection, args: argparse.Namespace) -> dict:
 def change_grant(conn: psycopg.Connection, args: argparse.Namespace) -> dict:
     tenant = tenant_id(conn, args.tenant)
     app = conn.execute(
-        "SELECT id FROM rag.apps WHERE tenant = %s AND id = %s", (tenant, args.app),
+        "SELECT id FROM apps WHERE tenant = %s AND id = %s", (tenant, args.app),
     ).fetchone()
     if app is None:
         raise ConfigurationError("Application not found in tenant.")
 
     library = conn.execute(
-        "SELECT id FROM rag.libraries WHERE tenant = %s AND code = %s", (tenant, args.code),
+        "SELECT id FROM libraries WHERE tenant = %s AND code = %s", (tenant, args.code),
     ).fetchone()
     if library is None:
         raise ConfigurationError("Knowledge base not found in tenant.")
@@ -89,12 +90,12 @@ def change_grant(conn: psycopg.Connection, args: argparse.Namespace) -> dict:
     params = (tenant, app[0], library[0], args.action)
     if args.command == "grant":
         conn.execute(
-            "INSERT INTO rag.grants (tenant, app, library, action) VALUES (%s, %s, %s, %s) ON CONFLICT DO NOTHING",
+            "INSERT INTO grants (tenant, app, library, action) VALUES (%s, %s, %s, %s) ON CONFLICT DO NOTHING",
             params,
         )
     else:
         conn.execute(
-            "DELETE FROM rag.grants WHERE tenant = %s AND app = %s AND library = %s AND action = %s",
+            "DELETE FROM grants WHERE tenant = %s AND app = %s AND library = %s AND action = %s",
             params,
         )
     return {"app": str(app[0]), "library": str(library[0]), "action": args.action}
@@ -103,7 +104,7 @@ def change_grant(conn: psycopg.Connection, args: argparse.Namespace) -> dict:
 def disable_app(conn: psycopg.Connection, args: argparse.Namespace) -> dict:
     tenant = tenant_id(conn, args.tenant)
     row = conn.execute(
-        "UPDATE rag.apps SET active = false WHERE tenant = %s AND id = %s RETURNING id",
+        "UPDATE apps SET active = false WHERE tenant = %s AND id = %s RETURNING id",
         (tenant, args.app),
     ).fetchone()
     if row is None:
@@ -113,7 +114,7 @@ def disable_app(conn: psycopg.Connection, args: argparse.Namespace) -> dict:
 
 def disable_tenant(conn: psycopg.Connection, args: argparse.Namespace) -> dict:
     row = conn.execute(
-        "UPDATE rag.tenants SET active = false WHERE code = %s RETURNING id", (args.tenant,),
+        "UPDATE tenants SET active = false WHERE code = %s RETURNING id", (args.tenant,),
     ).fetchone()
     if row is None:
         raise ConfigurationError("Tenant not found.")
@@ -168,7 +169,7 @@ def main() -> None:
         parser.error("set RAG_ADMIN_DATABASE_URL before running the CLI")
 
     try:
-        with psycopg.connect(dsn, connect_timeout=5) as conn:
+        with psycopg.connect(dsn, connect_timeout=5, options=SCHEMA_OPTIONS) as conn:
             result = args.handler(conn, args)
     except ConfigurationError as error:
         parser.exit(1, f"{error}\n")
