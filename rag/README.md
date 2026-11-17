@@ -46,6 +46,23 @@ docker rm rag-dev-objects-1
 uv run --locked python -m rag.dev up
 ```
 
+## Apply version retention
+
+Run `up` to apply the [retention SQL](../docs/env/rag/retention.sql) to the dev database. Use a tenant code from `status`. The first command previews the eligible versions and chunks. Use `--apply` to delete a batch. Run another batch when there are more eligible versions. The defaults are 30 days and at most 100 versions per run. The command uses the local PostgreSQL owner connection.
+
+```sh
+uv run --locked python -m rag.dev retain alpha
+uv run --locked python -m rag.dev retain alpha --days 30 --limit 100 --apply
+```
+
+An inactive version ages from the moment the last target or published pointer to it moves. Deleted documents age from deletion and require Elasticsearch to confirm the deletion revision. Nonterminal ingestion jobs keep their originals. Cleanup removes the original, chunks, and version from the live database, while upload receipts and idempotency keys remain available. Backup and WAL expiration follow the database backup policy.
+
+## Trace requests and audit changes
+
+Use the `X-Request-ID` response header to find JSON events in `.rag/dev/serve.log`. Uploads carry the same `trace_id` through ingestion and keyword indexing. Reader changes and document deletion carry their own request ID through the resulting index update. The event records include the application, tenant, affected resource, and outcome. A cleanup batch returns a trace ID and writes one `document.purge` event per deleted version to stderr.
+
+The provisioning CLI writes grant, revocation, and disable events as JSON to stderr and keeps command results on stdout. Capture stderr to retain CLI audit events when running commands manually. Demo commands and services write to their run's `services.log`. The [audit SQL](../docs/env/rag/audit.sql) adds request trace storage to the job queue.
+
 ## Configure access
 
 The CLI uses the provisioning role. Application keys are issued once at registration. Tenant and library codes use lowercase letters, digits, and hyphens, starting with a letter or digit. `register-app --expires` accepts an ISO 8601 timestamp with a time zone.
@@ -70,7 +87,7 @@ If the API is running through the development launcher, use that session. To run
 . docs/env/rag/.env
 export RAG_ES_URL="http://127.0.0.1:${RAG_ES_PORT:-59201}"
 RAG_DATABASE_URL="postgresql://rag_api:$RAG_API_PASSWORD@127.0.0.1:${RAG_POSTGRES_PORT:-55433}/rag" \
-  uv run --locked --env-file .env uvicorn rag.api:app --host 127.0.0.1 --port 8001
+  uv run --locked --env-file .env uvicorn rag.api:app --host 127.0.0.1 --port 8001 --no-access-log
 ```
 
 In the first terminal, the request returns `200` with the library `id`, `code`, and `name`. Repeat it after revoking `read` to see `403`.

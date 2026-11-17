@@ -25,3 +25,8 @@ B15 有两个证据锚点，关键词和 RRF 的前五条各覆盖一个，向�
 以 50 ms 间隔轮询任务接口，观察到 PG 发布至 ES 可搜的间隔 p50 为 534.2 ms，最大 970.3 ms。该值包含同步 Worker 轮询和 HTTP 状态采样时间。
 
 在固定 `rag-dev` 上复跑时，执行 `uv run --locked --env-file .env python -m rag.dev benchmark --repeat 3`。新一轮的环境清单和逐题结果保存在 `.rag/dev/<run>/`。本报告的原始记录保存在本地 `.rag/benchmark.json`。 [复跑配置](../rag/README.md#persistent-rag-dev)
+
+## 首期收尾验收
+
+- `uv run --locked python -m rag.dev test` 通过 27 项集成测试。新增覆盖留存预览、租户隔离、活跃任务保护、ES 同步前保留、并发文档锁和幂等回执。日志测试覆盖库授权与撤权、文档权限变更与删除，以及 HTTP、入库和索引同步之间的追踪 ID。记录位于 `.rag/dev/test-20261117-080645-f6607d/test.log`。
+- 电商端到端验收使用真实百炼和 ES。将样例时间调至留存窗口外后，清理一个过期历史版本和一个已同步删除的版本，共删除两份原件和四个切片。原上传任务仍可查询，新版在删除前可检索和下载，另一租户的原件仍可下载。核对了三次上传、一次文档读权限变更和一次删除的五条请求链，以及 CLI 撤权审计。结果位于 `.rag/dev/closeout-20261117-080911-e08589/acceptance.json`，请求和 Worker 日志位于相同目录的 `services.log`。 [留存与审计操作](../rag/README.md#apply-version-retention)

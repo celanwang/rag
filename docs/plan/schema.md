@@ -77,6 +77,7 @@ CREATE TABLE versions (
     content   bytea NOT NULL CHECK (octet_length(content) BETWEEN 1 AND 262144),
     checksum  bytea NOT NULL CHECK (octet_length(checksum) = 32),  -- 原件的 SHA-256
     config    jsonb NOT NULL,       -- 解析、切分和嵌入配置快照
+    retired   timestamptz,          -- 最后一个引用该版本的发布指针切换时间
     UNIQUE (document, number),
     UNIQUE (tenant, library, document, id),
     FOREIGN KEY (tenant, library, document)
@@ -113,11 +114,13 @@ CREATE TABLE jobs (
     library      uuid NOT NULL,
     document     uuid NOT NULL,
     kind         text NOT NULL CHECK (kind IN ('ingest', 'sync')),
-    app          uuid,              -- 入库请求的发起应用
-    version      uuid,              -- ingest 的目标版本
+    app          uuid,              -- 发起应用，历史同步任务可为空
+    version      uuid,              -- 尚未清理的入库版本
+    purged       uuid,              -- 已清理的版本 ID，沿用原上传回执
     revision     bigint CHECK (revision > 0),  -- sync 的变更序号
     request      text,              -- 上传幂等键
     fingerprint  bytea,             -- 上传请求摘要
+    trace        uuid,              -- 发起任务的请求 ID
     state        text NOT NULL DEFAULT 'queued'
                      CHECK (state IN ('queued', 'running', 'retry', 'done', 'failed')),
     stage        text,
@@ -137,13 +140,17 @@ CREATE TABLE jobs (
     CHECK ((lease IS NULL) = (deadline IS NULL)),
     CHECK ((state = 'running') = (lease IS NOT NULL)),
     CHECK (
-        (kind = 'ingest' AND app IS NOT NULL AND version IS NOT NULL AND revision IS NULL)
-        OR (kind = 'sync' AND app IS NULL AND version IS NULL AND revision IS NOT NULL AND request IS NULL)
+        (kind = 'ingest' AND app IS NOT NULL AND revision IS NULL AND (
+            (version IS NOT NULL AND purged IS NULL)
+            OR (version IS NULL AND purged IS NOT NULL AND state IN ('done', 'failed'))
+        ))
+        OR (kind = 'sync' AND version IS NULL AND purged IS NULL AND revision IS NOT NULL AND request IS NULL)
     )
 );
 
 CREATE INDEX ON jobs (kind, available) WHERE state IN ('queued', 'retry');
 CREATE INDEX ON jobs (kind, deadline) WHERE state = 'running';
+CREATE INDEX ON jobs (version) WHERE version IS NOT NULL;
 ```
 
 复合外键约束租户、库、文档和版本的归属。受保护的表启用行级安全（RLS），API 和 Worker 在业务事务内设置租户上下文。服务端写入 `readers` 时校验名单中的应用同属该租户。上传幂等键在应用和知识库范围内唯一，重试须匹配原请求摘要。只有持有有效租约且对应当前目标版本的任务可以发布。发布、撤权或删除文档时，事务同时推进 `revision` 并写入 `sync` 任务。ES 确认对应变更可搜索后更新 `synced`，检索始终按 PostgreSQL 中的当前版本和权限复核。首批每个应用一把生效凭据、每个切片一套向量。多凭据并存、用户组授权、连接器游标或整库切换需要独立管理时再引入相关表。 [入库与检索流程](design.md)

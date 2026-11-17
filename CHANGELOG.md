@@ -21,6 +21,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
 - Business retrieval API with pgvector, Elasticsearch, RRF, Bailian reranking, current-version citations, and original downloads.
 - Document reader controls, logical deletion, and a benchmark runner for the original 30 questions.
 - Persistent `rag-dev` workflow for browsing sample data and retaining integration and benchmark runs.
+- Tenant-scoped retention cleanup for expired PostgreSQL document versions, originals, and chunks with a dry run and preserved upload receipts.
 
 ### Changed
 
@@ -31,3 +32,4 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
 ### Security
 
 - Tenant-scoped PostgreSQL policies and authorization checks before candidate text, citations, or retrieval results are returned.
+- JSON audit events for authorization changes and document deletion, with request IDs propagated through ingestion and Elasticsearch synchronization.
