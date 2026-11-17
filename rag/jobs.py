@@ -35,9 +35,17 @@ def tenant_transaction(conn: psycopg.Connection, lease: Lease) -> Iterator[None]
         yield
 
 
-def claim(conn: psycopg.Connection, kind: Kind) -> Lease | None:
+def claim(
+    conn: psycopg.Connection, kind: Kind, job_id: UUID | None = None, *, lease_seconds: int = LEASE_SECONDS,
+) -> Lease | None:
+    if job_id is not None:
+        query = sql.SQL("SELECT id, tenant, lease FROM {}(%s, %s, %s)").format(
+            sql.Identifier("rag", f"claim_{kind}"),
+        )
+        row = conn.execute(query, (job_id, MAX_ATTEMPTS, lease_seconds)).fetchone()
+        return Lease(*row) if row and row[2] else None
     query = sql.SQL("SELECT id, tenant, lease FROM {}(%s, %s)").format(sql.Identifier("rag", f"claim_{kind}"))
-    row = conn.execute(query, (MAX_ATTEMPTS, LEASE_SECONDS)).fetchone()
+    row = conn.execute(query, (MAX_ATTEMPTS, lease_seconds)).fetchone()
     return Lease(*row) if row and row[2] else None
 
 

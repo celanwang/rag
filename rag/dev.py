@@ -28,7 +28,11 @@ COMPOSE = (
 )
 RUNS = ROOT / ".rag/dev"
 SCHEMA_FILE = "/docker-entrypoint-initdb.d/schema.sql"
-SCHEMA_VERSION = "rag schema version 1"
+SCHEMA_VERSION = "rag schema version 4"
+SCHEMA_UPGRADES = {"rag schema version 1": "002_sync_dispatch.sql",
+                   "rag schema version 2": "003_ingest_dispatch.sql",
+                   "rag schema version 3": "004_index_generations.sql"}
+MIGRATIONS = ROOT / "docs/env/rag/migrations"
 SECRETS = (
     "RAG_POSTGRES_PASSWORD", "RAG_API_PASSWORD", "RAG_ADMIN_PASSWORD", "RAG_WORKER_PASSWORD",
     "RAG_SYNC_PASSWORD",
@@ -89,7 +93,10 @@ def runtime(database: str = "rag") -> dict:
         port = env.get("RAG_POSTGRES_PORT", "55433")
         env[key] = f"postgresql://{role}:{quote(env[password], safe='')}@127.0.0.1:{port}/{database}"
     env["RAG_ES_URL"] = f"http://127.0.0.1:{env.get('RAG_ES_PORT', '59201')}"
-    env["RAG_ES_INDEX"] = local.get("RAG_ES_INDEX", "rag-chunks-v1")
+    env.setdefault("RAG_ES_INDEX", "rag-chunks-v1")
+    env.setdefault("RAG_CELERY_BROKER", f"redis://127.0.0.1:{env.get('RAG_REDIS_PORT', '56379')}/0")
+    env.setdefault("RAG_CELERY_QUEUE", f"{database}-sync")
+    env.setdefault("RAG_CELERY_INGEST_QUEUE", f"{database}-ingest")
     return env
 
 
@@ -100,19 +107,34 @@ def psql(env: dict, database: str, *args: str, **kwargs) -> subprocess.Completed
     )
 
 
-def up() -> None:
-    configure()
-    env = runtime()
-    command(*COMPOSE, "up", "-d", "--wait", "--wait-timeout", "90", env=env)
-    version = psql(env, "rag", "-Atc", """
+def upgrade_schema(env: dict, database: str) -> None:
+    query = """
         SELECT CASE WHEN ns IS NULL THEN 'empty'
                     ELSE COALESCE(obj_description(ns, 'pg_namespace'), 'unversioned') END
         FROM to_regnamespace('rag') AS ns
-    """, capture_output=True, text=True).stdout.strip()
+    """
+    version = psql(env, database, "-Atc", query, capture_output=True, text=True).stdout.strip()
     if version == "empty":
-        psql(env, "rag", "-qf", SCHEMA_FILE)
-    elif version != SCHEMA_VERSION:
+        psql(env, database, "-qf", SCHEMA_FILE, "-v", "reuse_roles=on")
+        version = "rag schema version 1"
+    while version in SCHEMA_UPGRADES:
+        psql(env, database, "-qf", "-", input=(MIGRATIONS / SCHEMA_UPGRADES[version]).read_text(), text=True)
+        updated = psql(env, database, "-Atc", query, capture_output=True, text=True).stdout.strip()
+        if version == updated:
+            raise RuntimeError("Database migration did not advance schema version")
+        version = updated
+    if version != SCHEMA_VERSION:
         raise SystemExit(f"Unsupported RAG database schema version: {version}")
+
+
+def up() -> None:
+    configure()
+    env = runtime()
+    profile = ("--profile", "celery") if "celery" in (
+        env.get("RAG_SYNC_EXECUTOR"), env.get("RAG_INGEST_EXECUTOR"),
+    ) else ()
+    command(*COMPOSE, *profile, "up", "-d", "--wait", "--wait-timeout", "90", env=env)
+    upgrade_schema(env, "rag")
     command(*COMPOSE, "ps", env=env)
 
 
@@ -132,6 +154,8 @@ def new_run(kind: str):
     folder.mkdir(parents=True, mode=0o700)
     if kind != "demo":
         env["RAG_ES_INDEX"] = f"rag-dev-{kind}-{stamp}"
+        env["RAG_CELERY_QUEUE"] = f"{env['RAG_ES_INDEX']}-sync"
+        env["RAG_CELERY_INGEST_QUEUE"] = f"{env['RAG_ES_INDEX']}-ingest"
     manifest = {
         "kind": kind, "run": stamp, "status": "running", "database": database,
         "index": env["RAG_ES_INDEX"],
@@ -142,7 +166,7 @@ def new_run(kind: str):
     try:
         if kind != "demo":
             command(*COMPOSE, "exec", "-T", "postgres", "createdb", "-U", "postgres", database, env=env)
-            psql(env, database, "-qf", SCHEMA_FILE, "-v", "reuse_roles=on")
+            upgrade_schema(env, database)
         yield env, folder, manifest
     except BaseException:
         manifest["status"] = "failed"
@@ -159,8 +183,22 @@ def available_port() -> int:
         return sock.getsockname()[1]
 
 
+def worker_commands(env: dict, kind: str) -> tuple[tuple[str, ...], ...]:
+    executor = env.get(f"RAG_{kind.upper()}_EXECUTOR", "pg")
+    if executor == "pg":
+        return (("rag.sync" if kind == "sync" else "rag.worker",),)
+    if executor != "celery":
+        raise ValueError(f"{kind} executor must be pg or celery")
+    queue = env["RAG_CELERY_QUEUE" if kind == "sync" else "RAG_CELERY_INGEST_QUEUE"]
+    return (
+        ("rag.task_queue", "--kind", kind),
+        ("celery", "-A", "rag.task_queue:app", "worker", "-Q", queue, "--hostname", f"{queue}@%h",
+         "--concurrency", "1", "--without-gossip", "--without-mingle", "--without-heartbeat"),
+    )
+
+
 @contextmanager
-def services(env: dict, port: int, log: Path | None = None):
+def services(env: dict, port: int, log: Path | None = None, *, sync: bool = True):
     if not env.get("DASHSCOPE_API_KEY"):
         raise SystemExit("Set DASHSCOPE_API_KEY or pass --env-file .env to uv.")
     stream = log.open("ab") if log else None
@@ -168,7 +206,7 @@ def services(env: dict, port: int, log: Path | None = None):
     try:
         for args in (
             ("uvicorn", "rag.api:app", "--host", "127.0.0.1", "--port", str(port), "--no-access-log"),
-            ("rag.worker",), ("rag.sync",),
+            *worker_commands(env, "ingest"), *(worker_commands(env, "sync") if sync else ()),
         ):
             processes.append(subprocess.Popen(
                 (sys.executable, "-m", *args), env=env, cwd=ROOT, stdout=stream,
@@ -216,11 +254,12 @@ def test() -> None:
                 raise SystemExit(process.returncode)
 
 
-def benchmark(repeat: int, *, bad_cases: bool = False) -> None:
+def benchmark(repeat: int, *, bad_cases: bool = False, paired: bool = False, evidence: bool = False) -> None:
     with new_run("benchmark") as (env, folder, _), services(env, available_port(), folder / "services.log") as (url, _):
         command(
             sys.executable, "-m", "rag.benchmark", "--url", url, "--repeat", str(repeat),
-            "--out", str(folder / "benchmark.json"), *(["--bad-cases"] if bad_cases else []), env=env,
+            "--out", str(folder / "benchmark.json"), *(["--bad-cases"] if bad_cases else []),
+            *(["--paired"] if paired else []), *(["--evidence"] if evidence else []), env=env,
         )
 
 
@@ -294,6 +333,9 @@ def main() -> None:
     measured = actions.add_parser("benchmark")
     measured.add_argument("--repeat", type=int, default=3)
     measured.add_argument("--bad-cases", action="store_true", help="Run the labelled retrieval failure cases")
+    measured.add_argument("--paired", action="store_true", help="Compare candidate budgets on one index")
+    measured.add_argument("--evidence", action="store_true", help="Check policy date and clarification cases")
+    actions.add_parser("sync-drill", help="Exercise sync delivery and recovery on isolated services")
     cleanup = actions.add_parser("retain", help="Preview or apply a tenant's version retention cleanup")
     cleanup.add_argument("tenant", type=short_code)
     cleanup.add_argument("--days", type=int, default=30)
@@ -303,7 +345,11 @@ def main() -> None:
     if args.action == "benchmark":
         if args.repeat < 1:
             parser.error("--repeat must be positive")
-        benchmark(args.repeat, bad_cases=args.bad_cases)
+        benchmark(args.repeat, bad_cases=args.bad_cases, paired=args.paired, evidence=args.evidence)
+    elif args.action == "sync-drill":
+        from .sync_drill import run
+
+        run()
     elif args.action == "retain":
         if not 1 <= args.days <= 36500 or not 1 <= args.limit <= 1000:
             cleanup.error("use 1 to 36500 days and 1 to 1000 versions per batch")

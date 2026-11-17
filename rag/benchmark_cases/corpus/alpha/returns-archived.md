@@ -1,3 +1,4 @@
+<!-- rag-policy {"青禾商城官网退货政策（2025 年版） / 普通商品退货期限":{"id":"returns-2025","rule":"returns","scope":"standard","scope_label":"普通商品","authority":1,"value":"7 days","effective_from":"2025-01-01","effective_to":"2026-09-01","supersedes":[],"topic_labels":["退货","售后","签收"]}} -->
 # 青禾商城官网退货政策（2025 年版）
 
 ## 普通商品退货期限

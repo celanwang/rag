@@ -38,6 +38,26 @@
       ["retention.md", "加密文件交换平台"],
       ["travel.md", "紧急联系人登记到安全门户"]
     ],
+    "gold_spans": [
+      {
+        "document": "beta/access.md",
+        "sha256": "6f90a4c8ef78942eed1fd27e9737edbef44b74bcb04006cdc82d0bceef13b45d",
+        "start": 52,
+        "end": 64
+      },
+      {
+        "document": "beta/retention.md",
+        "sha256": "f3397daca8a1c4e61d1fe953a578a39b90f4905097c972109a0deb240f4ddcb8",
+        "start": 244,
+        "end": 252
+      },
+      {
+        "document": "beta/travel.md",
+        "sha256": "9703b92c1b8704a746dee7de28c599cb1ae30e6acdd73b47c528f91c3e26ffc7",
+        "start": 185,
+        "end": 197
+      }
+    ],
     "expected_behavior": "分别给出临时账户有效期、合规外发平台和联系人登记入口，并逐项引用。"
   },
   {
@@ -56,6 +76,20 @@
     "gold": [
       ["retention.md", "在热存储保留 7 天，在归档桶保留 45 天"],
       ["release.md", "记录请求 ID 与所属区域"]
+    ],
+    "gold_spans": [
+      {
+        "document": "beta/retention.md",
+        "sha256": "f3397daca8a1c4e61d1fe953a578a39b90f4905097c972109a0deb240f4ddcb8",
+        "start": 182,
+        "end": 204
+      },
+      {
+        "document": "beta/release.md",
+        "sha256": "4118570db7cf280f592cc52aa3120a44acbb8a7405a42e909a78b68aeba0fbd8",
+        "start": 270,
+        "end": 283
+      }
     ],
     "expected_behavior": "同时引用日志保留和预发故障分析的证据，给出两个保留期限及请求 ID、所属区域。"
   },
@@ -133,6 +167,20 @@
     "gold": [
       ["retention.md", "在热存储保留 7 天，在归档桶保留 45 天"],
       ["release.md", "记录请求 ID 与所属区域"]
+    ],
+    "gold_spans": [
+      {
+        "document": "beta/retention.md",
+        "sha256": "f3397daca8a1c4e61d1fe953a578a39b90f4905097c972109a0deb240f4ddcb8",
+        "start": 182,
+        "end": 204
+      },
+      {
+        "document": "beta/release.md",
+        "sha256": "4118570db7cf280f592cc52aa3120a44acbb8a7405a42e909a78b68aeba0fbd8",
+        "start": 270,
+        "end": 283
+      }
     ],
     "expected_behavior": "给出请求 ID、所属区域和网关日志两种存储的保留期，同时引用两份证据。"
   },

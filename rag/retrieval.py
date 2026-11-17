@@ -1,6 +1,8 @@
 import logging
+import re
 from collections import defaultdict
 from concurrent.futures import Executor
+from datetime import date
 from time import perf_counter
 from typing import Annotated, Literal
 from uuid import UUID
@@ -9,9 +11,10 @@ import httpx
 from psycopg_pool import ConnectionPool
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
-from .evidence import ReadScope, load_evidence, read_scope, vector_candidates
-from .keyword import KeywordIndex, KeywordIndexError
+from .evidence import Evidence, ReadScope, load_evidence, neighbors, read_scope, vector_candidates
+from .keyword import KeywordIndex, KeywordIndexError, identifiers
 from .models import BailianModels, ModelError
+from .policy import scope_hints
 
 Mode = Literal["vector", "keyword", "rrf", "rerank"]
 Branch = Literal["vector", "keyword"]
@@ -36,6 +39,9 @@ class Search(BaseModel):
     candidates: int = Field(default=50, ge=1, le=50)
     rerank_limit: int = Field(default=30, ge=1, le=30)
     debug: bool = False
+    expand_neighbors: bool = False
+    as_of: date | None = None
+    interpret: bool = False
 
     @model_validator(mode="after")
     def validate_rerank_limit(self) -> "Search":
@@ -44,15 +50,78 @@ class Search(BaseModel):
         return self
 
 
-def rrf(rankings: list[list[UUID]]) -> list[UUID]:
+def rrf(rankings: list[list[UUID]], *, k: int = RRF_K) -> list[UUID]:
     nonempty = [ranking for ranking in rankings if ranking]
     if len(nonempty) <= 1:
         return nonempty[0] if nonempty else []
     scores: dict[UUID, float] = defaultdict(float)
     for ranking in nonempty:
         for rank, chunk_id in enumerate(dict.fromkeys(ranking), 1):
-            scores[chunk_id] += 1 / (RRF_K + rank)
+            scores[chunk_id] += 1 / (k + rank)
     return sorted(scores, key=lambda chunk: (-scores[chunk], chunk))
+
+
+def order_policies(ids: list[UUID], evidence: dict[UUID, Evidence], search: Search) -> tuple[list[UUID], list[UUID]]:
+    if search.as_of is None and not search.interpret:
+        return ids, []
+    policies = {chunk: policy for chunk in ids if (policy := evidence[chunk].policy()) is not None}
+    topics = {policy.rule for policy in policies.values()
+              if any(label and label in search.question for label in policy.topic_labels)}
+    matching = {policy.rule for policy in policies.values() if policy.scope_label in search.question}
+    eligible = {
+        chunk: policy for chunk, policy in policies.items()
+        if (search.as_of is None or policy.applies(search.as_of))
+        and (not topics or policy.rule in topics)
+        and (policy.rule not in matching or policy.scope_label in search.question)
+    }
+    groups = defaultdict(list)
+    for chunk, policy in eligible.items():
+        groups[policy.rule, policy.scope].append((chunk, policy))
+    selected = set()
+    conflict = set()
+    for group in groups.values():
+        present = {policy.id: policy for _, policy in group}
+        superseded = {
+            target for _, policy in group for target in policy.supersedes
+            if target in present and policy.authority >= present[target].authority
+            and policy.effective_from > present[target].effective_from
+        }
+        remaining = [(chunk, policy) for chunk, policy in group if policy.id not in superseded]
+        if not remaining:
+            continue
+        authority = max(policy.authority for _, policy in remaining)
+        winners = [(chunk, policy) for chunk, policy in remaining if policy.authority == authority]
+        selected.update(chunk for chunk, _ in winners)
+        if len({policy.value for _, policy in winners}) > 1:
+            by_policy = {}
+            for chunk, policy in winners:
+                by_policy.setdefault(policy.id, chunk)
+            conflict.update(by_policy.values())
+    first = [chunk for chunk in ids if chunk in selected and policies[chunk].rule in matching | topics]
+    ordered = first + [chunk for chunk in ids if chunk not in first and (chunk in selected or chunk not in policies)]
+    return ordered, [chunk for chunk in ordered if chunk in conflict]
+
+
+def identifier_hint(question: str, evidence: list[Evidence]) -> dict | None:
+    visible: dict[str, list[str]] = defaultdict(list)
+    for item in evidence:
+        for code in identifiers(item.body):
+            visible[code].append(item.heading or "")
+    for requested in identifiers(question):
+        if requested in visible:
+            continue
+        close = [code for code in visible if len(code) == len(requested) and
+                 sum(left != right for left, right in zip(code, requested)) == 1]
+        if not close:
+            continue
+        matches = [code for code in close if any(
+            part in question for heading in visible[code] for part in re.findall(r"(?=([\u4e00-\u9fff]{3}))", heading)
+        )]
+        if len(matches) == 1:
+            return {"identifier": requested, "suggested_identifier": matches[0]}
+        if len(close) > 1:
+            return {"identifier": requested, "possible_identifiers": sorted(close)}
+    return None
 
 
 class Retriever:
@@ -117,10 +186,11 @@ class Retriever:
         fused = rrf(list(rankings.values()))
         stage_ms["fusion"] = (perf_counter() - step) * 1000
 
-        ordered = fused
-        if search.mode == "rerank" and fused:
+        ordered, _ = order_policies(fused, authorized, search)
+        shortlist = []
+        if search.mode == "rerank" and ordered:
             step = perf_counter()
-            shortlist = fused[:search.rerank_limit]
+            shortlist = ordered[:search.rerank_limit]
             try:
                 scores = self.model_client().rerank(search.question, [authorized[chunk].passage() for chunk in shortlist])
                 ordered = [chunk for chunk, _ in sorted(
@@ -132,17 +202,52 @@ class Retriever:
             stage_ms["rerank"] = (perf_counter() - step) * 1000
 
         step = perf_counter()
-        current = load_evidence(self.pool, key, scope, set(authorized))
+        anchor_ids = ordered[:search.top_k]
+        related = neighbors(self.pool, key, scope, anchor_ids) if search.expand_neighbors and anchor_ids else {}
+        current = load_evidence(self.pool, key, scope, set(authorized) | set(related))
+        ordered, _ = order_policies([chunk for chunk in ordered if chunk in current], current, search)
         result = {
             "results": [current[chunk] for chunk in ordered if chunk in current][:search.top_k],
             "mode": search.mode,
             "degraded": degraded,
         }
+        if search.expand_neighbors:
+            visible_anchors = {current[chunk].version_id for chunk in anchor_ids if chunk in current}
+            primary = {evidence.chunk_id for evidence in result["results"]}
+            supplements = []
+            seen = {evidence.passage() for evidence in result["results"]}
+            remaining = 640
+            for chunk in (current[chunk] for chunk in related if chunk in current and chunk not in primary):
+                if chunk.version_id not in visible_anchors or len(chunk.body) > remaining or chunk.passage() in seen:
+                    continue
+                if len(chunk.body.strip()) < 12 or chunk.body.rstrip().endswith(("：**", ":**", "：", ":")):
+                    continue
+                supplements.append(chunk)
+                seen.add(chunk.passage())
+                remaining -= len(chunk.body)
+                if len(supplements) >= 4:
+                    break
+            result["supplemental"] = supplements
+        if search.interpret or search.as_of is not None:
+            eligible, conflicts = order_policies([chunk for chunk in fused if chunk in current], current, search)
+            result["policy_conflicts"] = [current[chunk] for chunk in conflicts]
+        if search.interpret:
+            result["query_hints"] = {}
+            hint = identifier_hint(search.question, [current[chunk] for chunk in eligible])
+            if hint is not None:
+                result["query_hints"].update(hint)
+            policies = [policy for chunk in eligible if (policy := current[chunk].policy()) is not None]
+            scopes = scope_hints(policies, search.question)
+            if scopes:
+                result["query_hints"]["possible_scopes"] = scopes
+            result["needs_clarification"] = bool(scopes or (hint and "possible_identifiers" in hint))
         stage_ms["authorization_final"] = (perf_counter() - step) * 1000
         if search.debug:
             result["debug"] = {
                 "recall": {branch: [chunk for chunk in ids if chunk in current] for branch, ids in rankings.items()},
                 "prefinal": [chunk for chunk in fused if chunk in current],
+                "rerank_input": [chunk for chunk in shortlist if chunk in current],
+                "model_calls": {"embedding": int("embedding" in stage_ms), "rerank": int(bool(shortlist))},
                 "stage_ms": stage_ms,
                 "service_ms": (perf_counter() - started) * 1000,
             }

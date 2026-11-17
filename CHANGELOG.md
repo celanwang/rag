@@ -8,6 +8,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
 
 ### Added
 
+- Fixed-candidate RRF replay, paired candidate and reranker benchmarks, and source-span evidence coverage.
+- Operator keyword index repair, optional Celery executors for sync and ingest, and a recoverable index generation workflow.
+- Scoped policy date selection, conflict evidence, clarification hints, and authorized same-section supplemental evidence.
+
 - Contributor guidance for commits on `main`, local verification, and changelog updates.
 - FastAPI retrieval PoC with Markdown and text ingestion, pgvector and Elasticsearch, RRF, optional BGE reranking, and citations.
 - A 30-question benchmark and executable checks for isolation, document ACLs, version changes, and stale index entries.

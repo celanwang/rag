@@ -1,11 +1,17 @@
+import json
 import os
+import subprocess
+import sys
 import unittest
+from unittest.mock import patch
 from uuid import UUID
 
 import httpx
 import psycopg
 
 from ingestion_fixture import SAMPLES, IngestionFixture
+from rag.api import app
+from test_authorization import cli
 from rag.db import SCHEMA_OPTIONS, set_tenant
 from rag.jobs import MAX_ATTEMPTS, claim
 from rag.keyword import KeywordIndex, scope_filters
@@ -162,6 +168,91 @@ class SyncTest(IngestionFixture, unittest.TestCase):
         self.change_document(document, deleted=True)
         self.sync_job(document)
         self.assertEqual(self.stored_chunks(self.alpha_id, document["document_id"]), [])
+
+    def test_operator_repair_restores_and_removes_one_document(self):
+        document = self.publish()
+        self.sync_job(document)
+        doc_id = document["document_id"]
+        records = self.stored_chunks(self.alpha_id, doc_id)
+        self.assertTrue(records)
+        self.index.client.delete(
+            f"{self.index.path}/_doc/{records[0]['chunk_id']}", params={"refresh": "true"},
+        ).raise_for_status()
+        self.assertEqual(len(self.stored_chunks(self.alpha_id, doc_id)), len(records) - 1)
+        self.assertEqual(self.status(document).json()["keyword_status"], "synced")
+
+        def repair(tenant):
+            return subprocess.run([sys.executable, "-m", "rag.sync", "--repair", tenant, doc_id],
+                                  capture_output=True, text=True)
+
+        def search(reader):
+            response = self.client.post("/v1/retrieve", headers={"Authorization": f"Bearer {reader}"}, json={
+                "knowledge_base_code": "shop", "question": "RET-ALPHA-07", "mode": "keyword",
+            })
+            self.assertEqual(response.status_code, 200, response.text)
+            return response.json()["results"]
+
+        self.assertEqual(repair(self.beta_id).returncode, 1)
+        for _ in range(2):
+            result = repair(self.alpha_id)
+            self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(len(self.stored_chunks(self.alpha_id, doc_id)), len(records))
+        self.assertEqual({row["document_id"] for row in search(self.reader)}, {doc_id})
+        beta = cli("register-app", self.beta, "Reader")
+        cli("grant", self.beta, beta["id"], "shop", "read")
+        self.assertEqual(search(beta["key"]), [])
+        headers = {"Authorization": f"Bearer {self.writer['key']}"}
+        self.client.patch(f"/v1/documents/{doc_id}/readers", headers=headers, json={"readers": []}).raise_for_status()
+        self.assertEqual(search(self.reader), [])
+        self.assertEqual(repair(self.alpha_id).returncode, 0)
+        self.assertTrue(all(not record["unrestricted"] for record in self.stored_chunks(self.alpha_id, doc_id)))
+        self.client.delete(f"/v1/documents/{doc_id}", headers=headers).raise_for_status()
+        self.assertEqual(repair(self.alpha_id).returncode, 0)
+        self.assertEqual(self.stored_chunks(self.alpha_id, doc_id), [])
+
+    def test_generation_cutover_rechecks_revisions_and_supports_rollback(self):
+        document = self.publish()
+        doc_id = document["document_id"]
+        alias = self.index.path[1:] + "-alias"
+        original, replacement = (self.index.path[1:] + suffix for suffix in ("-g1", "-g2"))
+        env = os.environ | {"RAG_ES_INDEX": alias}
+
+        def rebuild(action, generation, *args):
+            return subprocess.run([sys.executable, "-m", "rag.rebuild", action, alias, generation, *args],
+                                  env=env, capture_output=True, text=True)
+
+        def run_until_ready(generation):
+            for _ in range(100):
+                result = rebuild("build", generation, "--batch", "3")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                if json.loads(result.stdout)["status"] == "ready":
+                    return
+            self.fail("generation failed to reach ready")
+
+        run_until_ready(original)
+        self.assertEqual(rebuild("activate", original).returncode, 0)
+        run_until_ready(replacement)
+        headers = {"Authorization": f"Bearer {self.writer['key']}"}
+        self.publish(request="while-ready", file="alpha/shipping.txt")
+        self.client.patch(f"/v1/documents/{doc_id}/readers", headers=headers, json={"readers": []}).raise_for_status()
+        self.assertNotEqual(rebuild("activate", replacement).returncode, 0)
+        run_until_ready(replacement)
+        self.assertEqual(rebuild("activate", replacement).returncode, 0)
+        alias_index = KeywordIndex(self.index.client, alias)
+        with patch.object(app.state.retriever, "index", alias_index):
+            response = self.client.post("/v1/retrieve", headers={"Authorization": f"Bearer {self.reader}"}, json={
+                "knowledge_base_code": "shop", "question": "RET-ALPHA-07", "mode": "keyword",
+            }).raise_for_status().json()
+        self.assertNotIn(doc_id, {row["document_id"] for row in response["results"]})
+        self.assertTrue(alias_index.search(
+            UUID(self.alpha_id), self.library(self.alpha_id), UUID(self.writer["id"]), "SHIP-ALPHA-48",
+        ))
+        self.client.delete(f"/v1/documents/{doc_id}", headers=headers).raise_for_status()
+        self.assertNotEqual(rebuild("activate", original).returncode, 0)
+        run_until_ready(original)
+        self.assertEqual(rebuild("activate", original).returncode, 0)
+        response = self.index.client.get(f"/_alias/{alias}").raise_for_status()
+        self.assertEqual(list(response.json()), [original])
 
     def change_document(self, document, readers=None, deleted=False):
         # Exercise the sync contract of a future document mutation in the same transaction as its job.

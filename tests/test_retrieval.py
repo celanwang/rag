@@ -10,16 +10,30 @@ import psycopg
 from ingestion_fixture import IngestionFixture, SAMPLES
 from rag.api import app
 from rag.db import SCHEMA_OPTIONS
-from rag.evidence import load_evidence, original
+from rag.evidence import Evidence, load_evidence, original
 from rag.jobs import claim
 from rag.keyword import KeywordIndex
 from rag.models import BailianModels
-from rag.retrieval import rrf
+from rag.retrieval import Search, order_policies, rrf
 from rag.sync import process as sync_revision
 from test_authorization import cli
 
 
 class RrfTest(unittest.TestCase):
+    def test_active_supersession_and_same_authority_conflict(self):
+        common = {"rule": "returns", "scope": "standard", "scope_label": "普通商品", "authority": 1}
+        old, new, conflict = (UUID(int=i) for i in (1, 2, 3))
+        evidence = {
+            chunk: Evidence(chunk, chunk, chunk, "policy.md", "普通商品", "Policy", 1, 1, common | policy)
+            for chunk, policy in (
+                (old, {"id": "old", "value": "7", "effective_from": "2025-01-01"}),
+                (new, {"id": "new", "value": "15", "effective_from": "2026-09-01", "supersedes": ["old"]}),
+                (conflict, {"id": "peer", "value": "10", "effective_from": "2026-09-01"}),
+            )
+        }
+        search = Search(knowledge_base_code="shop", question="普通商品退货", as_of="2026-11-17")
+        self.assertEqual(order_policies([old, new, conflict], evidence, search), ([new, conflict], [new, conflict]))
+
     def test_b15_keeps_both_gold_chunks_in_top_five(self):
         # B15's observed branch rankings. The second vector hit has no keyword match in the shortlist.
         vector = [UUID(int=chunk) for chunk in range(1, 9)]
@@ -32,6 +46,25 @@ class RrfTest(unittest.TestCase):
 
 
 class RetrievalTest(IngestionFixture, unittest.TestCase):
+    def test_neighbors_skip_a_heading_marker_and_keep_section_and_acl(self):
+        content = (
+            "# 退货\n\n## 申请条件\n\nRET-TEST-998 常规退货需要保留商品原包装。\n\n"
+            "**不支持退货的情形：**\n\n已拆封的个人卫生用品适用单独的排除条款。\n\n"
+            "## 退款渠道\n\n银行卡的到账方式和支付渠道有关。\n"
+        ).encode()
+        job = self.publish(body=content)
+        payload = {"knowledge_base_code": "shop", "question": "RET-TEST-998", "mode": "keyword",
+                   "top_k": 1, "expand_neighbors": True}
+        response = self.client.post("/v1/retrieve", headers=self.auth(self.reader), json=payload).raise_for_status().json()
+        self.assertEqual(len(response["supplemental"]), 1)
+        supplement = response["supplemental"][0]
+        self.assertIn("排除条款", supplement["body"])
+        self.assertEqual(self.client.get(f"/v1/citations/{supplement['chunk_id']}",
+                                        headers=self.auth(self.reader)).status_code, 200)
+        self.set_readers(job, []).raise_for_status()
+        response = self.client.post("/v1/retrieve", headers=self.auth(self.reader), json=payload).raise_for_status().json()
+        self.assertFalse(response["results"] or response["supplemental"])
+
     def setUp(self):
         super().setUp()
         self.sync = self.enterContext(psycopg.connect(

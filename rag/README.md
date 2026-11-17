@@ -15,7 +15,7 @@ uv run --locked --env-file .env python -m rag.dev serve
 
 Run `serve` in a separate terminal to keep the API and both workers running. The demo creates two sample tenants in the main `rag` database and saves their read and write application keys in `.rag/dev/<run>/readers.json`. The local workbench loads the latest successful demo. For direct API calls, use the `key` field to read the tenant's `shop` knowledge base or `writer_key` for writes. [Local workbench](../frontend/README.md) · [API documentation](http://127.0.0.1:8001/docs)
 
-`up` reuses the PostgreSQL and Elasticsearch volumes. An empty database initializes from `schema.sql`. For an existing database, `up` checks the version recorded in the `rag` schema comment. Local credentials are stored in `docs/env/rag/.env`. [Compose config](../docs/env/rag/compose.yaml) · [Database design](../docs/plan/schema.md)
+`up` reuses the PostgreSQL and Elasticsearch volumes. An empty database initializes from `schema.sql`. The launcher applies ordered migrations from the version recorded in the `rag` schema comment. Local credentials are stored in `docs/env/rag/.env`. [Compose config](../docs/env/rag/compose.yaml) · [Database design](../docs/plan/schema.md)
 
 ```sh
 uv run --locked python -m rag.dev status
@@ -26,9 +26,16 @@ uv run --locked --env-file .env python -m rag.dev benchmark --bad-cases --repeat
 
 Each integration or benchmark run initializes its own database from `schema.sql` and uses its own Elasticsearch index in the same `rag-dev` services. This keeps queue claims and keyword index statistics local to that run. Resources and logs are retained. Find the database, index, and outcome in `.rag/dev/<run>/run.json`. The benchmark also saves `benchmark.json`, including per-question ranks and timings. [Measured results](../docs/other/retrieval-results.md)
 
-The default benchmark uses the original 30 questions and their original corpus. `--bad-cases` runs 19 labelled cases with four additional policy fixtures. Both suites use the same JSON fields and retrieval scores. Use `id`, `token`, `kind`, `question`, and `gold` in each case. Each gold anchor is a `[filename, text fragment]` pair that identifies one chunk in the reader's tenant. Bad cases require `expected_behavior`. A follow-up question can use `variant_of` to reference a base case in the same suite. `avoid_top1` optionally marks misleading chunks using the same anchor format. [Original questions](../poc/questions.json) · [Bad cases](benchmark_cases/questions.json)
+The default benchmark uses the original 30 questions and their original corpus. `--bad-cases` runs 19 labelled cases with four additional policy fixtures. Each `[filename, text fragment]` gold anchor identifies a single range in the original file. Cases can pin document keys, SHA-256 and decoded character offsets using `gold_spans`. The benchmark validates those fingerprints and scores the union of returned ranges. `avoid_top1` marks misleading chunks. [Original questions](../poc/questions.json) · [Bad cases](benchmark_cases/questions.json)
 
-The report lists gold chunks absent from all active candidates in `missing_from_candidates` and recalled gold chunks outside the prefinal cutoff in `outside_prefinal_top_k`. In hybrid modes, the prefinal cutoff is applied to the RRF order. Use `evidence_sources` to look up each labelled chunk's filename and source lines, and `forbidden_top1_hit` to check for a misleading first result. Clarification, partial answers, policy applicability and conflict reporting remain application-level expectations recorded with the cases.
+The report lists gold chunks absent from all active candidates in `missing_from_candidates` and recalled gold chunks outside the prefinal cutoff in `outside_prefinal_top_k`. It also reports actual rerank inputs, first sources, full evidence coverage and model calls. `--paired` runs five parameter profiles on a shared index within each suite. `--replay` verifies recorded fusion and recomputes RRF from preserved branch rankings. Its reranking results come from the recorded API calls. `--evidence` exercises the explicit policy dates, conflicts and clarification cases and fails the run if an expected behavior fails.
+
+```sh
+uv run --locked python -m rag.benchmark --replay .rag/dev/<run>/benchmark.json --rrf-k 1 60 --out .rag/replay.json
+uv run --locked --env-file .env python -m rag.dev benchmark --paired --repeat 2
+uv run --locked --env-file .env python -m rag.dev benchmark --paired --bad-cases --repeat 2
+uv run --locked --env-file .env python -m rag.dev benchmark --evidence --repeat 2
+```
 
 `status` lists published sample documents and the resources created by each run. Inspect other databases by replacing `rag` in the PostgreSQL command with the recorded database name.
 
@@ -137,7 +144,40 @@ uv run --locked python -m rag.sync
 
 Add `--once` to process one available task. Query the ingestion job again to see `keyword_status=synced` after the worker writes the current version, removes older chunks, and refreshes the index. `keyword_attempts` and `keyword_error` describe the sync task for the current revision. Failed Elasticsearch operations retry independently of ingestion, up to four attempts.
 
+Run a document repair with the sync database role and the API's configured index. The repair reads the current revision and ACL under the document lock and refreshes Elasticsearch even when the recorded revision already matches.
+
+```sh
+uv run --locked python -m rag.sync --repair "$rag_tenant_id" "$rag_document_id"
+```
+
+### Select a worker executor
+
+The default executor for each job type is `pg`. Choose `celery` for either queue to start the Redis broker, the dispatcher and its dedicated worker. PostgreSQL leases, attempts and job status remain the recovery record. The dispatcher reserves a short delivery window before publishing and can reissue a due task when the window expires. Each delivery runs through the exact-ID claim for its job type.
+
+```sh
+RAG_SYNC_EXECUTOR=celery uv run --locked python -m rag.dev up
+RAG_SYNC_EXECUTOR=celery RAG_INGEST_EXECUTOR=celery \
+  uv run --locked --env-file .env python -m rag.dev serve
+uv run --locked --env-file .env python -m rag.dev sync-drill
+```
+
+To roll back, stop the service launcher and restart it with `RAG_SYNC_EXECUTOR=pg` or `RAG_INGEST_EXECUTOR=pg` for the queue being switched. Pending and expired jobs are claimed from the same PostgreSQL tables. Each isolated drill uses its own database, index, Redis container and queue names.
+
+### Rebuild and activate a keyword index
+
+Set `RAG_INDEX_ADMIN_DATABASE_URL` to the PostgreSQL maintenance connection. Choose an alias that the API and sync worker will use and a distinct concrete name for each generation. Build in batches until the status is `ready`. The job checkpoints each document revision. Activation checks current publication under a PostgreSQL lock, verifies the indexed chunk count and swaps the alias.
+
+```sh
+export RAG_ES_INDEX=rag-search
+uv run --locked python -m rag.rebuild build rag-search rag-search-g1 --batch 25 --interval-ms 50
+uv run --locked python -m rag.rebuild activate rag-search rag-search-g1
+```
+
+For the first activation, create the alias before starting the API and Worker with `RAG_ES_INDEX=rag-search RAG_ES_REQUIRE_ALIAS=1`. If documents changed after the build reached ready, run the build again before retrying activation. To roll back, build the archived generation until it catches up, then activate it with the same command.
+
 ## Retrieve evidence and download a source
+
+Set `expand_neighbors: true` to request bounded supplemental evidence from the same document version and section. New uploads record section positions. Reingest an older version to enable expansion for it. Set `as_of` to an ISO calendar date to select applicable policy evidence, and `interpret: true` to request identifier and scope clarification hints. The API returns the candidates for a policy conflict and leaves the original query intact. Policy authors can annotate Markdown sections with a first-line `<!-- rag-policy {…} -->` object keyed by the full heading path. [Policy fixture](benchmark_cases/corpus/alpha/returns-current.md)
 
 After the sample is synchronized, grant read access and query the knowledge base. The API accepts `vector`, `keyword`, `rrf`, and `rerank` as `mode`. API and sync worker must use the same `RAG_ES_URL` and `RAG_ES_INDEX`.
 

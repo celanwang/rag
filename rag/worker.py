@@ -16,6 +16,7 @@ from .jobs import (
     LEASE_SECONDS, Lease, LeaseLost, complete, fail_in_transaction, lock_lease, run_worker, tenant_transaction,
 )
 from .models import EMBEDDING_BATCH_SIZE, BailianModels, ModelError
+from .policy import Policy, read_metadata
 from .text import CONFIG, MAX_UPLOAD_BYTES, Chunk, InvalidText, decode_text, split_text
 
 @dataclass(frozen=True)
@@ -64,7 +65,7 @@ def advance(conn: psycopg.Connection, lease: Lease, stage: str) -> None:
 
 def publish(
     conn: psycopg.Connection, lease: Lease, source: Source,
-    chunks: list[Chunk], vectors: list[list[float]],
+    chunks: list[Chunk], vectors: list[list[float]], policies: dict[str, Policy] | None = None,
 ) -> bool:
     with tenant_transaction(conn, lease):
         document = conn.execute(
@@ -86,7 +87,11 @@ def publish(
                     (
                         uuid5(source.version, str(ordinal)), lease.tenant, source.library, source.document,
                         source.version, ordinal, chunk.heading, chunk.body,
-                        Jsonb({"line_start": chunk.line_start, "line_end": chunk.line_end}),
+                        Jsonb({"line_start": chunk.line_start, "line_end": chunk.line_end,
+                               "start_offset": chunk.start_offset, "end_offset": chunk.end_offset,
+                               "section_start": chunk.section_start,
+                               **({"policy": policies[chunk.heading].model_dump(mode="json")}
+                                  if policies and chunk.heading in policies else {})}),
                         json.dumps(vector),
                     )
                     for ordinal, (chunk, vector) in enumerate(zip(chunks, vectors, strict=True))
@@ -115,9 +120,17 @@ def process(conn: psycopg.Connection, lease: Lease, models: BailianModels) -> No
         original = source.content
         if len(original) > MAX_UPLOAD_BYTES or hashlib.sha256(original).digest() != source.checksum:
             raise InvalidText("Original checksum does not match")
-        chunks = split_text(decode_text(original), markdown=source.mime == "text/markdown")
+        text = decode_text(original)
+        markdown = source.mime == "text/markdown"
+        chunks = split_text(text, markdown=markdown)
         if not chunks:
             raise InvalidText("Document contains no indexable text")
+        try:
+            policies = read_metadata(text, markdown)
+            if not policies.keys() <= {chunk.heading for chunk in chunks}:
+                raise ValueError("Policy metadata names a section with no evidence")
+        except ValueError as error:
+            raise InvalidText("Invalid policy metadata") from error
 
         vectors = []
         for start in range(0, len(chunks), EMBEDDING_BATCH_SIZE):
@@ -125,7 +138,7 @@ def process(conn: psycopg.Connection, lease: Lease, models: BailianModels) -> No
             batch = chunks[start:start + EMBEDDING_BATCH_SIZE]
             vectors.extend(models.embed([chunk.passage() for chunk in batch]))
         advance(conn, lease, "publish")
-        published = publish(conn, lease, source, chunks, vectors)
+        published = publish(conn, lease, source, chunks, vectors, policies)
         emit("document.publish", source.trace, outcome="published" if published else "superseded",
              actor_type="app", actor=source.actor, service="ingest", tenant=lease.tenant,
              job=lease.job, library=source.library, document=source.document, version=source.version)

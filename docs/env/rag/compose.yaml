@@ -34,6 +34,20 @@ services:
       interval: 3s
       timeout: 4s
       retries: 40
+  redis:
+    profiles: ["celery"]
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory-policy", "noeviction"]
+    ports:
+      - "127.0.0.1:${RAG_REDIS_PORT:-56379}:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 2s
+      retries: 20
 volumes:
   postgres-data:
   elasticsearch-data:
+  redis-data:

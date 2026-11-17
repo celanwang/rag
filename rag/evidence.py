@@ -8,6 +8,7 @@ import psycopg
 from psycopg_pool import ConnectionPool
 
 from .auth import Identity, InvalidKey, Library, LibraryNotFound, app_session, require_library
+from .policy import Policy
 from .text import model_passage
 
 PUBLISHED = """
@@ -25,7 +26,7 @@ READABLE = """
 """
 EVIDENCE = """
     SELECT c.id, c.document, c.version, v.filename, c.heading, c.body,
-           (c.location ->> 'line_start')::int, (c.location ->> 'line_end')::int
+           (c.location ->> 'line_start')::int, (c.location ->> 'line_end')::int, c.location -> 'policy'
 """ + PUBLISHED + CHUNKS + READABLE
 
 
@@ -52,9 +53,13 @@ class Evidence:
     body: str
     line_start: int
     line_end: int
+    policy_data: dict | None = None
 
     def passage(self) -> str:
         return model_passage(self.heading, self.body)
+
+    def policy(self) -> Policy | None:
+        return Policy.model_validate(self.policy_data) if self.policy_data else None
 
 
 @dataclass(frozen=True)
@@ -101,6 +106,25 @@ def load_evidence(pool: ConnectionPool, key: str, scope: ReadScope, ids: set[UUI
         rows = conn.execute(
             EVIDENCE + "AND c.library = %(library)s AND c.id = ANY(%(ids)s::uuid[])",
             scope.params() | {"ids": list(ids)},
+        ).fetchall()
+    return {row[0]: Evidence(*row) for row in rows}
+
+
+def neighbors(pool: ConnectionPool, key: str, scope: ReadScope, anchors: list[UUID]) -> dict[UUID, Evidence]:
+    with read_session(pool, key, scope) as conn:
+        rows = conn.execute(
+            EVIDENCE + """
+            AND c.library = %(library)s AND EXISTS (
+                SELECT 1 FROM chunks AS anchor
+                WHERE (anchor.tenant, anchor.library, anchor.document, anchor.version) =
+                      (c.tenant, c.library, c.document, c.version)
+                  AND anchor.id = ANY(%(anchors)s::uuid[])
+                  AND anchor.location ->> 'section_start' = c.location ->> 'section_start'
+                  AND c.ordinal BETWEEN anchor.ordinal - 2 AND anchor.ordinal + 2
+            )
+            AND NOT c.id = ANY(%(anchors)s::uuid[])
+            ORDER BY c.document, c.ordinal
+            """, scope.params() | {"anchors": anchors},
         ).fetchall()
     return {row[0]: Evidence(*row) for row in rows}
 
