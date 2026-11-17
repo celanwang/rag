@@ -21,6 +21,10 @@ class InvalidText(ValueError):
     pass
 
 
+def model_passage(heading: str | None, body: str) -> str:
+    return f"{heading[:120]}\n{body}" if heading else body
+
+
 def decode_text(content: bytes) -> str:
     try:
         text = content.decode("utf-8-sig")
@@ -39,7 +43,7 @@ class Chunk:
     line_end: int
 
     def passage(self) -> str:
-        return f"{self.heading[:120]}\n{self.body}" if self.heading else self.body
+        return model_passage(self.heading, self.body)
 
 
 def split_text(text: str, markdown: bool) -> list[Chunk]:

@@ -1,6 +1,7 @@
 import os
 from collections.abc import Iterator
 from contextlib import contextmanager
+from math import isfinite
 from operator import itemgetter
 
 import httpx
@@ -24,6 +25,10 @@ def ordered_values(rows: list[dict], index: str, field: str, count: int) -> list
     except (KeyError, TypeError):
         pass
     raise ModelError("Bailian returned invalid result indices or values.")
+
+
+def finite_number(value: object) -> bool:
+    return type(value) in (int, float) and isfinite(value)
 
 
 class BailianModels:
@@ -60,8 +65,12 @@ class BailianModels:
                 "embeddings",
             )
             batch_vectors = ordered_values(rows, "text_index", "embedding", len(batch))
-            if any(not isinstance(vector, list) or len(vector) != EMBEDDING_DIMENSIONS for vector in batch_vectors):
-                raise ModelError(f"Bailian returned a vector with an unexpected dimension for {EMBEDDING_MODEL}.")
+            if any(
+                not isinstance(vector, list) or len(vector) != EMBEDDING_DIMENSIONS
+                or not all(finite_number(component) for component in vector)
+                for vector in batch_vectors
+            ):
+                raise ModelError(f"Bailian returned an invalid vector for {EMBEDDING_MODEL}.")
             vectors.extend(batch_vectors)
         return vectors
 
@@ -81,7 +90,10 @@ class BailianModels:
             {"top_n": len(passages), "return_documents": False},
             "results",
         )
-        return ordered_values(rows, "index", "relevance_score", len(passages))
+        scores = ordered_values(rows, "index", "relevance_score", len(passages))
+        if not all(finite_number(score) for score in scores):
+            raise ModelError(f"Bailian returned invalid scores for {RERANK_MODEL}.")
+        return scores
 
 
 def main() -> None:
