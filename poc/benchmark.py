@@ -15,7 +15,7 @@ import httpx
 from .documents import CHUNK_CHARS, CHUNK_OVERLAP, split_document
 from .retrieval import MODES
 
-ROOT = Path(__file__).resolve().parent.parent / "poc"
+ROOT = Path(__file__).resolve().parent
 BASE_URL = "http://127.0.0.1:8000"
 TOP_K = 5
 TUNING = {"top_k": TOP_K, "candidates": 8, "rerank_limit": 12, "debug": True}

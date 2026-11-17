@@ -14,6 +14,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
 - RAGFlow 1.0.0 baseline with the same source files, a local BGE embedding endpoint, and comparable evidence and authorization probes.
 - Phase-one design, an eight-table schema proposal, and a consolidated PoC validation report.
 
+### Changed
+
+- Consolidate prototype Python modules and fixtures under `poc/` and use `poc.*` entry points for the API and verification commands.
+
 ### Security
 
 - Tenant-scoped PostgreSQL policies and authorization checks before candidate text, citations, or retrieval results are returned.

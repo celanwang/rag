@@ -25,6 +25,8 @@ A RAG system that finds relevant sources and uses them to answer questions.
 
 [PoC 验证报告](docs/poc-results.md)汇总自研检索消融、RAGFlow 同题对照和隔离验收。
 
+PoC 的 Python 模块、样本文档、题集和建表 SQL 位于 [poc/](poc/)。
+
 ### 启动与实测
 
 需要 Docker Compose、uv 和 Python 3.11。初次运行会拉取两个服务镜像及约 390 MB 的模型和分词器文件。模型之后由本机 CPU 推理。
@@ -32,15 +34,15 @@ A RAG system that finds relevant sources and uses them to answer questions.
 ```sh
 docker compose up -d --wait
 uv sync --locked --python 3.11
-uv run --locked python -m rag_poc.models
-uv run --locked uvicorn rag_poc.api:app --host 127.0.0.1 --port 8000
+uv run --locked python -m poc.models
+uv run --locked uvicorn poc.api:app --host 127.0.0.1 --port 8000
 ```
 
 在另一个终端执行以下命令。评测会通过 API 导入两租户共 14 份样本文档，校验金标引用，再以并发 1 对 30 道题、4 种模式各测 3 遍。用一套专用的 Compose 数据卷复跑可固定语料快照。
 
 ```sh
-uv run --locked python -m rag_poc.benchmark --repeat 3 --out .poc/results.json
-uv run --locked python -m rag_poc.verify
+uv run --locked python -m poc.benchmark --repeat 3 --out .poc/results.json
+uv run --locked python -m poc.verify
 ```
 
 `.poc/results.json` 包含题集、语料指纹、模型版本、逐题结果、授权后候选、阶段耗时和按题型汇总。评测使用每路 8 个候选，RRF 的 `k=60`，精排最多 12 个候选，返回前 5 条。API 默认每路 50 个候选，精排最多 30 个候选，可在请求中调整。
@@ -85,14 +87,14 @@ docker compose -f poc/ragflow/compose.yaml exec -T ragflow cat /ragflow/conf/pub
 
 ```sh
 RAGFLOW_EMBEDDING_KEY="$(cat .poc/ragflow-embedding-key)" \
-  uv run --locked uvicorn rag_poc.ragflow_embedding:app --host 127.0.0.1 --port 18090
+  uv run --locked uvicorn poc.ragflow_embedding:app --host 127.0.0.1 --port 18090
 ```
 
 在另一个终端创建 Alpha、Beta 两个 RAGFlow 用户和本地模型配置，然后运行对照。凭据保存在被 Git 忽略的 `.poc/`。
 
 ```sh
-uv run --locked python -m rag_poc.ragflow_setup
-uv run --locked python -m rag_poc.ragflow_baseline --repeat 3 --out .poc/ragflow-results.json
+uv run --locked python -m poc.ragflow_setup
+uv run --locked python -m poc.ragflow_baseline --repeat 3 --out .poc/ragflow-results.json
 ```
 
 对照导入同一份原件，通过原文锚点对三种模式统一评分，保留每次请求、实际解析配置、源文件指纹和越权探测结果。为了对齐评测时的可见文档，RAGFlow 的 Alpha 普通读者请求附带文档白名单。脚本还用同一凭据删除和改写白名单，实测 RAGFlow 原生授权边界。
