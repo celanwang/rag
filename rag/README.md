@@ -21,9 +21,12 @@ Run `serve` in a separate terminal to keep the API and both workers running. Ope
 uv run --locked python -m rag.dev status
 uv run --locked python -m rag.dev test
 uv run --locked --env-file .env python -m rag.dev benchmark --repeat 3
+uv run --locked --env-file .env python -m rag.dev benchmark --bad-cases --repeat 3
 ```
 
 Each integration or benchmark run initializes its own database from `schema.sql` and uses its own Elasticsearch index in the same `rag-dev` services. This keeps queue claims and keyword index statistics local to that run. Resources and logs are retained. Find the database, index, and outcome in `.rag/dev/<run>/run.json`. The benchmark also saves `benchmark.json`, including per-question ranks and timings. [Measured results](../docs/other/retrieval-results.md)
+
+The default benchmark uses the original 30 questions and their original corpus. `--bad-cases` runs eight labelled cases and adds policy fixtures to the corpus for that run. Each case labels the expected evidence and application behavior. The benchmark measures retrieval and checks `forbidden_top1_hit` where a misleading source is labelled. Clarification, partial answers, policy applicability and conflict reporting are application-level expectations recorded with the questions. [Bad cases](benchmark_cases/questions.json)
 
 `status` lists published sample documents and the resources created by each run. Inspect other databases by replacing `rag` in the PostgreSQL command with the recorded database name.
 

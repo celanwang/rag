@@ -22,6 +22,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
 - Document reader controls, logical deletion, and a benchmark runner for the original 30 questions.
 - Persistent `rag-dev` workflow for browsing sample data and retaining integration and benchmark runs.
 - Tenant-scoped retention cleanup for expired PostgreSQL document versions, originals, and chunks with a dry run and preserved upload receipts.
+- Eight labelled retrieval failure cases and an isolated benchmark for candidate coverage and misleading top results.
 
 ### Changed
 

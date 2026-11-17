@@ -1,0 +1,82 @@
+[
+  {
+    "id": "Q01",
+    "token": "alpha-reader",
+    "kind": "Query 错词",
+    "question": "Northstar 报 GW-410Z，提示设备证书被拒绝，该怎么处理？",
+    "gold": [["support.md", "管理台重新签发"]],
+    "avoid_top1": [["support.md", "出站 443/TCP"]],
+    "expected_behavior": "把 GW-410Z 视为疑似录入错误。根据证书拒绝的症状引用 GW-4102，说明需要核对编号，并给出证书有效期、网关时钟及重签步骤。"
+  },
+  {
+    "id": "Q02",
+    "token": "alpha-reader",
+    "kind": "Query 错词",
+    "question": "KeyHub 应用秘钥换新时，怎么让接入服务不断线？",
+    "gold": [["access.md", "同时保留新旧两把访问密钥"]],
+    "avoid_top1": [["access.md", "查看秘钥轮换记录"]],
+    "expected_behavior": "按应用密钥轮换回答，说明并行保留新旧密钥、验证新密钥后停用旧密钥。"
+  },
+  {
+    "id": "Q03",
+    "token": "alpha-reader",
+    "kind": "Query 歧义",
+    "question": "我从青禾商城官网买的东西，签收三天了，还能退吗？",
+    "gold": [
+      ["returns-current.md", "15 个自然日内可申请退货"],
+      ["returns-current.md", "24 小时内申请售后"]
+    ],
+    "expected_behavior": "澄清商品是普通商品还是冷藏生鲜，或同时给出两种商品的期限及适用条件。"
+  },
+  {
+    "id": "Q04",
+    "token": "beta-reader",
+    "kind": "漏召回",
+    "question": "外部供应商要临时用系统，授权最长多久？需要网上交付的文件走什么渠道？出境工作前，应该在哪里填出事找谁？",
+    "gold": [
+      ["access.md", "有效期上限为 24 小时"],
+      ["retention.md", "加密文件交换平台"],
+      ["travel.md", "紧急联系人登记到安全门户"]
+    ],
+    "expected_behavior": "分别给出临时账户有效期、合规外发平台和联系人登记入口，并逐项引用。"
+  },
+  {
+    "id": "Q05",
+    "token": "beta-reader",
+    "kind": "漏召回",
+    "question": "出差临时取消，酒店费用找谁？对方的 24 小时联系电话是多少？",
+    "gold": [["travel.md", "酒店费用由区域差旅顾问处理"]],
+    "expected_behavior": "说明酒店费用由区域差旅顾问处理。可用语料缺少联系电话，应明确这一部分证据不足。"
+  },
+  {
+    "id": "Q06",
+    "token": "beta-reader",
+    "kind": "融合后丢失证据",
+    "question": "网关留痕还能翻到多久前？预发出了毛病复现不了，要把什么信息交给分析人员？",
+    "gold": [
+      ["retention.md", "在热存储保留 7 天，在归档桶保留 45 天"],
+      ["release.md", "记录请求 ID 与所属区域"]
+    ],
+    "expected_behavior": "同时引用日志保留和预发故障分析的证据，给出两个保留期限及请求 ID、所属区域。"
+  },
+  {
+    "id": "Q07",
+    "token": "alpha-reader",
+    "kind": "旧政策误用",
+    "question": "以前客服说青禾商城官网普通商品签收后 7 天内退货。截至 2026-11-17，普通商品签收 10 天还可以申请退货吗？",
+    "gold": [["returns-current.md", "15 个自然日内可申请退货"]],
+    "avoid_top1": [["returns-archived.md", "签收后 7 个自然日内可申请退货"]],
+    "expected_behavior": "用现行官网普通商品政策确认签收 10 天仍在 15 天期限内。7 天仅适用于旧版，可用于解释政策变化。"
+  },
+  {
+    "id": "Q08",
+    "token": "alpha-reader",
+    "kind": "来源冲突",
+    "question": "截至 2026-11-17，青禾商城官网的自提订单到店后最晚多久要取？",
+    "gold": [
+      ["pickup-operations.md", "到店通知后 48 小时内取货"],
+      ["pickup-customer-service.md", "到店通知后 72 小时内取货"]
+    ],
+    "expected_behavior": "报告两个当前生效的同级制度在同一适用范围内冲突。列出 48 小时和 72 小时及各自出处，并提示向制度维护方确认。"
+  }
+]

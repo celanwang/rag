@@ -19,6 +19,7 @@ from .retrieval import BRANCHES, RRF_K
 from .text import CHUNK_CHARS, CHUNK_OVERLAP, split_text
 
 QUESTIONS = Path(__file__).resolve().parents[1] / "poc" / "questions.json"
+BAD_CASES = Path(__file__).with_name("benchmark_cases")
 MODES = tuple(BRANCHES)
 TUNING = {"knowledge_base_code": "demo", "top_k": 5, "candidates": 8, "rerank_limit": 12, "debug": True}
 
@@ -32,7 +33,7 @@ def request(client: httpx.Client, method: str, path: str, key: str, *, headers: 
     return response.raise_for_status().json()
 
 
-def seed(client: httpx.Client) -> tuple[dict, dict, dict]:
+def seed(client: httpx.Client, paths: list[Path]) -> tuple[dict, dict, dict]:
     run = uuid4().hex[:10]
     apps = {}
     for tenant in ("alpha", "beta"):
@@ -47,7 +48,7 @@ def seed(client: httpx.Client) -> tuple[dict, dict, dict]:
 
     corpus = {}
     sources = {}
-    for path in sorted(QUESTIONS.parent.glob("corpus/*/*")):
+    for path in paths:
         tenant, filename = path.parent.name, path.name
         writer = apps[f"{tenant}-writer"]["key"]
         content = path.read_bytes()
@@ -85,13 +86,20 @@ def seed(client: httpx.Client) -> tuple[dict, dict, dict]:
     return corpus, sources, apps
 
 
-def run(client: httpx.Client, repeat: int) -> dict:
-    raw = QUESTIONS.read_bytes()
+def run(client: httpx.Client, repeat: int, *, bad_cases: bool = False) -> dict:
+    questions = BAD_CASES / "questions.json" if bad_cases else QUESTIONS
+    raw = questions.read_bytes()
     samples = json.loads(raw)
-    corpus, sources, apps = seed(client)
+    paths = sorted(QUESTIONS.parent.glob("corpus/*/*"))
+    if bad_cases:
+        paths.extend(sorted(BAD_CASES.glob("corpus/*/*")))
+    corpus, sources, apps = seed(client, paths)
     expected = gold_ids(corpus, samples)
+    avoid_top1 = gold_ids(corpus, [
+        {**sample, "gold": sample["avoid_top1"]} for sample in samples if "avoid_top1" in sample
+    ])
     for sample in samples:
-        for chunk in expected[sample["id"]]:
+        for chunk in expected[sample["id"]] | avoid_top1.get(sample["id"], set()):
             request(client, "GET", f"/v1/citations/{chunk}", apps[sample["token"]]["key"])
 
     def search(sample: dict, mode: str) -> dict:
@@ -115,33 +123,39 @@ def run(client: httpx.Client, repeat: int) -> dict:
             elapsed = (time.perf_counter() - started) * 1000
             ids = [hit["chunk_id"] for hit in result["results"]]
             evidence = expected[sample["id"]]
-            rows.append({
+            row = {
                 "id": sample["id"], "kind": sample["kind"], "mode": mode, "trial": trial,
                 "http_ms": elapsed, "gold_ids": sorted(evidence), "metrics": metrics(ids, evidence),
                 **result["debug"], "ranked_ids": ids,
-            })
+            }
+            if forbidden := avoid_top1.get(sample["id"]):
+                row["forbidden_top1_hit"] = bool(forbidden.intersection(ids[:1]))
+            rows.append(row)
     return {
         "metadata": {
             "tuning": TUNING, "repeat": repeat, "concurrency": 1, "platform": platform.platform(),
+            "suite": "bad-cases" if bad_cases else "original",
             "questions_sha256": hashlib.sha256(raw).hexdigest(), "corpus": sources,
             "embedding": EMBEDDING_MODEL, "reranker": RERANK_MODEL, "rrf_k": RRF_K,
             "chunk_chars": CHUNK_CHARS, "chunk_overlap": CHUNK_OVERLAP, "status_poll_interval_ms": 50,
         },
+        "samples": samples,
         "overall": {mode: aggregate([row for row in rows if row["mode"] == mode]) for mode in MODES},
         "requests": rows,
     }
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Benchmark the business retrieval API with the 30 original questions.")
+    parser = argparse.ArgumentParser(description="Benchmark evidence retrieval through the business API.")
     parser.add_argument("--url", default="http://127.0.0.1:8001")
     parser.add_argument("--repeat", type=int, default=3)
+    parser.add_argument("--bad-cases", action="store_true", help="Run the labelled retrieval failure cases")
     parser.add_argument("--out", default=Path(".rag/benchmark.json"), type=Path)
     args = parser.parse_args()
     if args.repeat < 1:
         parser.error("--repeat must be positive")
     with httpx.Client(base_url=args.url, timeout=60, trust_env=False) as client:
-        report = run(client, args.repeat)
+        report = run(client, args.repeat, bad_cases=args.bad_cases)
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n")
     print("| Mode | Recall@1 | Recall@3 | Recall@5 | HTTP p50 ms | HTTP p95 ms |")

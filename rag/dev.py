@@ -216,11 +216,11 @@ def test() -> None:
                 raise SystemExit(process.returncode)
 
 
-def benchmark(repeat: int) -> None:
+def benchmark(repeat: int, *, bad_cases: bool = False) -> None:
     with new_run("benchmark") as (env, folder, _), services(env, available_port(), folder / "services.log") as (url, _):
         command(
             sys.executable, "-m", "rag.benchmark", "--url", url, "--repeat", str(repeat),
-            "--out", str(folder / "benchmark.json"), env=env,
+            "--out", str(folder / "benchmark.json"), *(["--bad-cases"] if bad_cases else []), env=env,
         )
 
 
@@ -290,6 +290,7 @@ def main() -> None:
         actions.add_parser(action)
     measured = actions.add_parser("benchmark")
     measured.add_argument("--repeat", type=int, default=3)
+    measured.add_argument("--bad-cases", action="store_true", help="Run the labelled retrieval failure cases")
     cleanup = actions.add_parser("retain", help="Preview or apply a tenant's version retention cleanup")
     cleanup.add_argument("tenant", type=short_code)
     cleanup.add_argument("--days", type=int, default=30)
@@ -299,7 +300,7 @@ def main() -> None:
     if args.action == "benchmark":
         if args.repeat < 1:
             parser.error("--repeat must be positive")
-        benchmark(args.repeat)
+        benchmark(args.repeat, bad_cases=args.bad_cases)
     elif args.action == "retain":
         if not 1 <= args.days <= 36500 or not 1 <= args.limit <= 1000:
             cleanup.error("use 1 to 36500 days and 1 to 1000 versions per batch")
