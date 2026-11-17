@@ -1,0 +1,21 @@
+name: rag-dev
+services:
+  postgres:
+    image: pgvector/pgvector@sha256:0dd3149a06e4579a0d70d8fef9945636cd514005e7237deb27f9b67886f8dc4f
+    environment:
+      POSTGRES_DB: rag
+      POSTGRES_PASSWORD: ${RAG_POSTGRES_PASSWORD:?Set RAG_POSTGRES_PASSWORD}
+      RAG_API_PASSWORD: ${RAG_API_PASSWORD:?Set RAG_API_PASSWORD}
+      RAG_ADMIN_PASSWORD: ${RAG_ADMIN_PASSWORD:?Set RAG_ADMIN_PASSWORD}
+    ports:
+      - "127.0.0.1:55433:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    healthcheck:
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "postgres", "-d", "rag"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+volumes:
+  postgres-data:

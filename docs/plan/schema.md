@@ -2,13 +2,15 @@
 
 首期使用八张业务表。CLI 和 API 可按 `code` 查找租户或知识库，例如 `alpha` 和 `ops-docs`。租户短码全局唯一，知识库短码在租户内唯一。`name` 用于展示，表间关联使用 UUID `id`。
 
+身份和授权阶段初始化 `tenants`、`apps`、`libraries` 和 `grants`。 [初始化 SQL](../env/rag/schema.sql)
+
 ```sql
 CREATE EXTENSION IF NOT EXISTS vector;
 
 -- 保存租户的短码、名称和启用状态。
 CREATE TABLE tenants (
     id      uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-    code    text NOT NULL UNIQUE,
+    code    text NOT NULL UNIQUE CHECK (code ~ '^[a-z0-9][a-z0-9-]{0,62}$'),
     name    text NOT NULL,
     active  boolean NOT NULL DEFAULT true
 );
@@ -18,7 +20,7 @@ CREATE TABLE apps (
     id       uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant   uuid NOT NULL REFERENCES tenants (id),
     name     text NOT NULL,
-    digest   bytea NOT NULL UNIQUE,  -- 高熵 API 密钥的摘要
+    digest   bytea NOT NULL UNIQUE CHECK (octet_length(digest) = 32),  -- API 密钥的 SHA-256 摘要
     expires  timestamptz,
     active   boolean NOT NULL DEFAULT true,
     UNIQUE (tenant, id)
@@ -28,7 +30,7 @@ CREATE TABLE apps (
 CREATE TABLE libraries (
     id        uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant    uuid NOT NULL REFERENCES tenants (id),
-    code      text NOT NULL,
+    code      text NOT NULL CHECK (code ~ '^[a-z0-9][a-z0-9-]{0,62}$'),
     name      text NOT NULL,
     settings  jsonb NOT NULL DEFAULT '{}',
     UNIQUE (tenant, code),
