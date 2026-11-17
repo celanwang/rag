@@ -17,6 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .audit import emit
 from .auth import InvalidKey, Library, LibraryForbidden, LibraryNotFound, app_session, require_library
+from .catalog import Catalog, DocumentPage, list_documents, list_libraries
 from .db import SCHEMA_OPTIONS
 from .documents import DocumentChange, InvalidReaders, change_document
 from .evidence import CitationNotFound, Evidence, citation, original, original_is_current
@@ -138,10 +139,25 @@ def api_key(credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(
 ApiKey = Annotated[str, Depends(api_key)]
 
 
+@app.get("/v1/knowledge-bases")
+def read_catalog(request: Request, key: ApiKey) -> Catalog:
+    return list_libraries(request.app.state.pool, key)
+
+
 @app.get("/v1/knowledge-bases/{code}")
 def read_library(code: str, request: Request, key: ApiKey) -> Library:
     with app_session(request.app.state.pool, key) as (conn, identity):
         return require_library(conn, identity, code, "read")
+
+
+@app.get("/v1/knowledge-bases/{code}/documents")
+def read_documents(
+    code: str, request: Request, key: ApiKey,
+    q: Annotated[str, Query(max_length=255)] = "",
+    offset: Annotated[int, Query(ge=0)] = 0,
+    limit: Annotated[int, Query(ge=1, le=100)] = 20,
+) -> DocumentPage:
+    return list_documents(request.app.state.pool, key, code, q.strip(), offset, limit)
 
 
 @app.post("/v1/knowledge-bases/{code}/documents", status_code=202)
