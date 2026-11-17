@@ -18,7 +18,8 @@ Branch = Literal["vector", "keyword"]
 BRANCHES: dict[Mode, tuple[Branch, ...]] = {
     "vector": ("vector",), "keyword": ("keyword",), "rrf": ("vector", "keyword"), "rerank": ("vector", "keyword"),
 }
-RRF_K = 60
+# Keep early single-branch hits competitive with lower-ranked hits shared by both branches.
+RRF_K = 1
 logger = logging.getLogger(__name__)
 
 

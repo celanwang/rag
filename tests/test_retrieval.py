@@ -2,6 +2,7 @@ import json
 import os
 import unittest
 from unittest.mock import patch
+from uuid import UUID
 
 import httpx
 import psycopg
@@ -13,8 +14,21 @@ from rag.evidence import load_evidence, original
 from rag.jobs import claim
 from rag.keyword import KeywordIndex
 from rag.models import BailianModels
+from rag.retrieval import rrf
 from rag.sync import process as sync_revision
 from test_authorization import cli
+
+
+class RrfTest(unittest.TestCase):
+    def test_b15_keeps_both_gold_chunks_in_top_five(self):
+        # B15's observed branch rankings. The second vector hit has no keyword match in the shortlist.
+        vector = [UUID(int=chunk) for chunk in range(1, 9)]
+        keyword = [UUID(int=chunk) for chunk in (1, 9, 3, 5, 10, 6, 4, 11)]
+
+        fused = rrf([vector, keyword])
+
+        self.assertLess(fused.index(vector[0]), 5)
+        self.assertLess(fused.index(vector[1]), 5)
 
 
 class RetrievalTest(IngestionFixture, unittest.TestCase):
