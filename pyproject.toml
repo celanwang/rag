@@ -1,0 +1,19 @@
+[project]
+name = "rag-poc"
+version = "0.1.0"
+requires-python = ">=3.11,<3.14"
+dependencies = [
+    "fastapi==0.115.14",
+    "httpx==0.28.1",
+    "huggingface-hub==0.36.0",
+    "numpy==2.2.6",
+    "onnxruntime==1.23.2",
+    "psycopg[binary,pool]==3.2.10",
+    "tokenizers==0.22.1",
+    "uvicorn==0.34.3",
+]
+
+[[tool.uv.index]]
+name = "pypi"
+url = "https://pypi.org/simple"
+default = true

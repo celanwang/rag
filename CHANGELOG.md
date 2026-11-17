@@ -9,3 +9,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
 ### Added
 
 - Contributor guidance for commits on `main`, local verification, and changelog updates.
+- FastAPI retrieval PoC with Markdown and text ingestion, pgvector and Elasticsearch, RRF, optional BGE reranking, and citations.
+- A 30-question benchmark and executable checks for isolation, document ACLs, version changes, and stale index entries.
+
+### Security
+
+- Tenant-scoped PostgreSQL policies and authorization checks before candidate text, citations, or retrieval results are returned.
