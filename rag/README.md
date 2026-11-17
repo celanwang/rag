@@ -1,16 +1,16 @@
 # RAG Service
 
-The RAG service manages knowledge base access and asynchronously ingests Markdown and plain text. Run the commands from the repository root with Docker Compose, uv, and Python 3.11. [Compose config](../docs/env/rag/compose.yaml)
+The RAG service manages knowledge base access, asynchronously ingests Markdown and plain text, and synchronizes published versions to Elasticsearch. Run the commands from the repository root with Docker Compose, uv, and Python 3.11. [Compose config](../docs/env/rag/compose.yaml)
 
 ## Start local services
 
-Generate local credentials once. A fresh volume initializes the four access tables and the four ingestion tables. PostgreSQL listens on `127.0.0.1:55433` and the S3-compatible service on `127.0.0.1:59001`. [Access SQL](../docs/env/rag/schema.sql) · [Ingestion SQL](../docs/env/rag/ingestion.sql)
+Generate local credentials once. A fresh volume initializes the eight business tables and the worker roles. PostgreSQL, S3, and Elasticsearch listen on `127.0.0.1` at ports `55433`, `59001`, and `59201`. Set `RAG_POSTGRES_PORT`, `RAG_S3_PORT`, or `RAG_ES_PORT` when running another local stack. [Access SQL](../docs/env/rag/schema.sql) · [Ingestion SQL](../docs/env/rag/ingestion.sql) · [Sync SQL](../docs/env/rag/sync.sql)
 
 ```sh
 (
   umask 077
   touch docs/env/rag/.env
-  for name in RAG_POSTGRES_PASSWORD RAG_API_PASSWORD RAG_ADMIN_PASSWORD RAG_WORKER_PASSWORD RAG_S3_ACCESS_KEY RAG_S3_SECRET_KEY; do
+  for name in RAG_POSTGRES_PASSWORD RAG_API_PASSWORD RAG_ADMIN_PASSWORD RAG_WORKER_PASSWORD RAG_SYNC_PASSWORD RAG_S3_ACCESS_KEY RAG_S3_SECRET_KEY; do
     if ! grep -q "^$name=" docs/env/rag/.env; then
       printf '\n%s=%s\n' "$name" "$(openssl rand -hex 24)" >> docs/env/rag/.env
     fi
@@ -27,11 +27,18 @@ docker compose --env-file docs/env/rag/.env -f docs/env/rag/compose.yaml exec -T
   psql -U postgres -d rag -f /docker-entrypoint-initdb.d/02-ingestion.sql
 ```
 
+For an existing business database provisioned before Elasticsearch synchronization, apply the sync SQL once after the ingestion SQL. Existing queued sync jobs remain available to the new worker.
+
+```sh
+docker compose --env-file docs/env/rag/.env -f docs/env/rag/compose.yaml exec -T postgres \
+  psql -U postgres -d rag -f /docker-entrypoint-initdb.d/03-sync.sql
+```
+
 In each terminal that uses storage, export the endpoint and local credentials. Create the private `rag-originals` bucket once.
 
 ```sh
 . docs/env/rag/.env
-export RAG_S3_ENDPOINT=http://127.0.0.1:59001 RAG_S3_ACCESS_KEY RAG_S3_SECRET_KEY
+export RAG_S3_ENDPOINT="http://127.0.0.1:${RAG_S3_PORT:-59001}" RAG_S3_ACCESS_KEY RAG_S3_SECRET_KEY
 uv run --locked python -m rag.objects
 ```
 
@@ -41,7 +48,7 @@ The CLI uses the provisioning role. Application keys are issued once at registra
 
 ```sh
 . docs/env/rag/.env
-export RAG_ADMIN_DATABASE_URL="postgresql://rag_admin:$RAG_ADMIN_PASSWORD@127.0.0.1:55433/rag"
+export RAG_ADMIN_DATABASE_URL="postgresql://rag_admin:$RAG_ADMIN_PASSWORD@127.0.0.1:${RAG_POSTGRES_PORT:-55433}/rag"
 uv run --locked python -m rag.cli create-tenant alpha Alpha
 uv run --locked python -m rag.cli create-library alpha demo 'Alpha demo'
 rag_application="$(uv run --locked python -m rag.cli register-app alpha Reader)"
@@ -57,7 +64,7 @@ Start the API in a second terminal with the restricted role.
 
 ```sh
 . docs/env/rag/.env
-RAG_DATABASE_URL="postgresql://rag_api:$RAG_API_PASSWORD@127.0.0.1:55433/rag" \
+RAG_DATABASE_URL="postgresql://rag_api:$RAG_API_PASSWORD@127.0.0.1:${RAG_POSTGRES_PORT:-55433}/rag" \
   uv run --locked uvicorn rag.api:app --host 127.0.0.1 --port 8001
 ```
 
@@ -91,17 +98,30 @@ Run the worker in a terminal with the storage variables exported and the Bailian
 
 ```sh
 . docs/env/rag/.env
-export RAG_WORKER_DATABASE_URL="postgresql://rag_worker:$RAG_WORKER_PASSWORD@127.0.0.1:55433/rag"
+export RAG_WORKER_DATABASE_URL="postgresql://rag_worker:$RAG_WORKER_PASSWORD@127.0.0.1:${RAG_POSTGRES_PORT:-55433}/rag"
 uv run --locked --env-file .env python -m rag.worker
 ```
 
-Check the job from the upload terminal. A successful result has `state=done`, `stage=published`, and `keyword_status=pending`. A temporary provider error changes the state to `retry` and can be retried up to four total attempts. An expired lease makes the job claimable again.
+Check the job from the upload terminal. After publication it has `state=done` and `stage=published`. A temporary model or storage error schedules a retry, up to four total attempts. An expired lease makes the job claimable again.
 
 ```sh
 curl -fsS -H "Authorization: Bearer $rag_app_key" "http://127.0.0.1:8001/v1/ingestion-jobs/$rag_job_id"
 ```
 
-The next stage consumes the pending Elasticsearch sync tasks. With the admin database and storage variables exported, `uv run --locked python -m rag.objects --prune` removes unreferenced originals older than 24 hours.
+With the admin database and storage variables exported, `uv run --locked python -m rag.objects --prune` removes unreferenced originals older than 24 hours.
+
+## Synchronize the keyword index
+
+Start the independent sync worker. It uses PostgreSQL and Elasticsearch. Set `RAG_ES_INDEX` to override the default index `rag-chunks-v1` and `RAG_ES_API_KEY` when the cluster requires API key authentication.
+
+```sh
+. docs/env/rag/.env
+export RAG_SYNC_DATABASE_URL="postgresql://rag_sync:$RAG_SYNC_PASSWORD@127.0.0.1:${RAG_POSTGRES_PORT:-55433}/rag"
+export RAG_ES_URL="http://127.0.0.1:${RAG_ES_PORT:-59201}"
+uv run --locked python -m rag.sync
+```
+
+Add `--once` to process one available task. Query the ingestion job again to see `keyword_status=synced` after the worker writes the current version, removes older chunks, and refreshes the index. `keyword_attempts` and `keyword_error` describe the sync task for the current revision. Failed Elasticsearch operations retry independently of ingestion, up to four attempts.
 
 ## Verify authorization
 
@@ -109,16 +129,18 @@ Run the checks against a disposable local database. They provision isolated test
 
 ```sh
 . docs/env/rag/.env
-export RAG_ADMIN_DATABASE_URL="postgresql://rag_admin:$RAG_ADMIN_PASSWORD@127.0.0.1:55433/rag"
-export RAG_DATABASE_URL="postgresql://rag_api:$RAG_API_PASSWORD@127.0.0.1:55433/rag"
+export RAG_ADMIN_DATABASE_URL="postgresql://rag_admin:$RAG_ADMIN_PASSWORD@127.0.0.1:${RAG_POSTGRES_PORT:-55433}/rag"
+export RAG_DATABASE_URL="postgresql://rag_api:$RAG_API_PASSWORD@127.0.0.1:${RAG_POSTGRES_PORT:-55433}/rag"
 uv run --locked python -m unittest discover -s tests -p test_authorization.py -v
 ```
 
-For ingestion tests, use the disposable database and bucket with the worker stopped. The suite uses the real storage and injects model errors at the HTTP boundary to verify retries and publication.
+For the full suite, use a disposable database, bucket, and Elasticsearch instance with both workers stopped. The tests use the e-commerce samples, exercise real storage and search, and inject model and Elasticsearch failures at the HTTP boundary.
 
 ```sh
-export RAG_WORKER_DATABASE_URL="postgresql://rag_worker:$RAG_WORKER_PASSWORD@127.0.0.1:55433/rag"
-export RAG_TEST_OWNER_URL="postgresql://postgres:$RAG_POSTGRES_PASSWORD@127.0.0.1:55433/rag"
+export RAG_WORKER_DATABASE_URL="postgresql://rag_worker:$RAG_WORKER_PASSWORD@127.0.0.1:${RAG_POSTGRES_PORT:-55433}/rag"
+export RAG_SYNC_DATABASE_URL="postgresql://rag_sync:$RAG_SYNC_PASSWORD@127.0.0.1:${RAG_POSTGRES_PORT:-55433}/rag"
+export RAG_TEST_OWNER_URL="postgresql://postgres:$RAG_POSTGRES_PASSWORD@127.0.0.1:${RAG_POSTGRES_PORT:-55433}/rag"
+export RAG_ES_URL="http://127.0.0.1:${RAG_ES_PORT:-59201}"
 uv run --locked python -m unittest discover -s tests -v
 ```
 

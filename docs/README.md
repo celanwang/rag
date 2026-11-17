@@ -9,7 +9,7 @@
 
 ## Env
 
-- RAG 业务服务 · [Compose 配置](env/rag/compose.yaml)、[权限 SQL](env/rag/schema.sql)、[入库 SQL](env/rag/ingestion.sql)、[运行与验收](../rag/README.md)
+- RAG 业务服务 · [Compose 配置](env/rag/compose.yaml)、[权限 SQL](env/rag/schema.sql)、[入库 SQL](env/rag/ingestion.sql)、[索引同步 SQL](env/rag/sync.sql)、[运行与验收](../rag/README.md)
 - 自研 PoC · [Compose 配置](env/poc/compose.yaml)、[PostgreSQL 初始化 SQL](env/poc/schema.sql)
 - RAGFlow 基线 · [Compose 配置](env/ragflow/compose.yaml)
 

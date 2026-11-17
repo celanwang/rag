@@ -17,6 +17,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
 - Alibaba Cloud Bailian client for document and query embeddings and text reranking, with a local model check.
 - Markdown and plain-text upload to object storage, PostgreSQL ingestion jobs, and a Bailian embedding worker with retries and version publication.
 - E-commerce sample documents and integration checks for ingestion, publication, and tenant isolation.
+- Elasticsearch sync worker with revision-based cleanup, bounded retries, and searchable status in the ingestion job API.
 
 ### Changed
 
