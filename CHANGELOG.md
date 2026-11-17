@@ -11,6 +11,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
 - Fixed-candidate RRF replay, paired candidate and reranker benchmarks, and source-span evidence coverage.
 - Operator keyword index repair, optional Celery executors for sync and ingest, and a recoverable index generation workflow.
 - Scoped policy date selection, conflict evidence, clarification hints, and authorized same-section supplemental evidence.
+- Cited question answering with fixed retrieval, bounded optional follow-up retrieval, and an offline RAGAS evaluation group.
 
 - Contributor guidance for commits on `main`, local verification, and changelog updates.
 - FastAPI retrieval PoC with Markdown and text ingestion, pgvector and Elasticsearch, RRF, optional BGE reranking, and citations.
@@ -45,8 +46,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
 
 - Retire the one-time PostgreSQL baseline and original-file migration scripts after upgrading `rag-dev`.
 
+### Fixed
+
+- Inherit the closest annotated policy in nested Markdown sections and provide a scoped backfill for current publications.
+
 ### Security
 
+- Recheck all question-answering model context before returning an answer, including unused and earlier-round evidence.
 - Tenant-scoped PostgreSQL policies and authorization checks before candidate text, citations, or retrieval results are returned.
 - JSON audit events for authorization changes and document deletion, with request IDs propagated through ingestion and Elasticsearch synchronization.
 - Keep application credentials in the local proxy and enforce workspace-scoped read and write access in the API.

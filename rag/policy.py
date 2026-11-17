@@ -44,6 +44,22 @@ def read_metadata(text: str, markdown: bool) -> dict[str, Policy]:
     return POLICY_HEADERS.validate_json(first[len(MARKER):-4])
 
 
+def resolve_policy(heading: str, annotations: dict[str, Policy]) -> Policy | None:
+    """Use the closest annotated section. An explicit child replaces the whole record."""
+    while heading:
+        if heading in annotations:
+            return annotations[heading]
+        heading = heading.rpartition(" / ")[0]
+    return None
+
+
+def section_policies(headings: set[str], annotations: dict[str, Policy]) -> dict[str, Policy]:
+    for path in annotations:
+        if not any(heading == path or heading.startswith(path + " / ") for heading in headings):
+            raise ValueError(f"Policy annotation names a section with no evidence: {path}")
+    return {heading: policy for heading in headings if (policy := resolve_policy(heading, annotations))}
+
+
 def scope_hints(policies: list[Policy], question: str) -> list[str]:
     groups: dict[str, set[str]] = {}
     for policy in policies:

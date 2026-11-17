@@ -263,6 +263,16 @@ def benchmark(repeat: int, *, bad_cases: bool = False, paired: bool = False, evi
         )
 
 
+def answer_eval(split: str, paired: bool, repeat: int) -> None:
+    with new_run("answer-eval") as (env, folder, manifest):
+        manifest["split"] = split
+        manifest["paired"] = paired
+        with services(env, available_port(), folder / "services.log") as (url, _):
+            command(sys.executable, "-m", "rag.answer_eval", "--url", url, "--split", split,
+                    "--repeat", str(repeat), "--out", str(folder / "answers.json"),
+                    *(["--paired"] if paired else []), env=env)
+
+
 def demo() -> None:
     with new_run("demo") as (env, folder, manifest), services(env, available_port(), folder / "services.log") as (url, _):
         def cli(*args: str) -> dict:
@@ -335,6 +345,10 @@ def main() -> None:
     measured.add_argument("--bad-cases", action="store_true", help="Run the labelled retrieval failure cases")
     measured.add_argument("--paired", action="store_true", help="Compare candidate budgets on one index")
     measured.add_argument("--evidence", action="store_true", help="Check policy date and clarification cases")
+    answers = actions.add_parser("answer-eval", help="Capture synthetic QA answers for offline evaluation")
+    answers.add_argument("--split", choices=("development", "holdout", "all"), default="development")
+    answers.add_argument("--paired", action="store_true")
+    answers.add_argument("--repeat", type=int, default=1)
     actions.add_parser("sync-drill", help="Exercise sync delivery and recovery on isolated services")
     cleanup = actions.add_parser("retain", help="Preview or apply a tenant's version retention cleanup")
     cleanup.add_argument("tenant", type=short_code)
@@ -350,6 +364,10 @@ def main() -> None:
         from .sync_drill import run
 
         run()
+    elif args.action == "answer-eval":
+        if args.repeat < 1:
+            parser.error("--repeat must be positive")
+        answer_eval(args.split, args.paired, args.repeat)
     elif args.action == "retain":
         if not 1 <= args.days <= 36500 or not 1 <= args.limit <= 1000:
             cleanup.error("use 1 to 36500 days and 1 to 1000 versions per batch")

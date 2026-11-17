@@ -18,3 +18,8 @@ dependencies = [
 name = "pypi"
 url = "https://pypi.org/simple"
 default = true
+
+[dependency-groups]
+evaluation = [
+    "ragas==0.4.4",
+]

@@ -194,6 +194,46 @@ Use `PATCH /v1/documents/{document_id}/readers` with a write key to change the r
 
 Hybrid responses report a failed recall path in `degraded`. A failed reranker returns the pre-reranking order. If PostgreSQL authorization cannot be verified, the service returns `503`.
 
+## Answer with citations
+
+Use a read key with `POST /v1/answer`. The default `fixed` strategy searches the original question with hybrid retrieval, reranking, and bounded same-section evidence. The generator selects excerpts by evidence ID and index. The service resolves them to original text and returns publication version IDs, source lines, and citation URLs.
+
+```sh
+curl -fsS http://127.0.0.1:8001/v1/answer \
+  -H "Authorization: Bearer $rag_app_key" -H 'Content-Type: application/json' \
+  -d '{"knowledge_base_code":"demo","question":"普通商品退货期限是多少？","as_of":"2026-09-01"}'
+```
+
+Responses use `answered`, `partial`, `needs_clarification`, `policy_conflict`, or `insufficient`. `partial` carries the supported subset. `policy_conflict` carries the conflicting source citations. Context is returned only when `include_context` is true. The service checks each model input against PostgreSQL before generation and before returning, including all evidence used to route a subsequent lookup. `context_changed` discards the result if that check fails. The citation and file endpoints enforce current access on each read.
+
+Set `RAG_ANSWER_MODEL`, `RAG_ANSWER_BASE_URL`, or `RAG_ANSWER_API_KEY` to override the generation provider settings. The defaults are DashScope's OpenAI-compatible endpoint, `qwen-plus`, and `DASHSCOPE_API_KEY`. `RAG_POLICY_TIMEZONE` defaults to `Asia/Shanghai` for questions without a date. For historical questions, `as_of` evaluates `[effective_from, effective_to)` within currently published evidence the reader can access.
+
+To try Agentic on an individual request, set `strategy` to `agentic`. The original question is retained, and a structured evidence gap can trigger one linked lookup or rewrite within the same knowledge base. Default budgets are 16 seconds, six combined embedding, rerank, and generation attempts, and 4,000 cumulative serialized evidence characters. Requests can specify `deadline_ms`, `max_model_calls`, or `max_context_chars` within the documented API bounds. Set `strategy` to `fixed` to switch a client back. Set `RAG_AGENTIC_ENABLED=0` and restart the API to force fixed strategy for every caller. The response reports the strategy actually used.
+
+### Backfill inherited policy dates
+
+New ingestion inherits the closest annotated parent policy when a child has no annotation. An explicit child annotation replaces the complete inherited policy. To repair an affected published document, use a maintenance connection with permission to update chunk metadata. Confirm the tenant, document, version, and change count from the dry run before applying.
+
+```sh
+uv run --locked python -m rag.policy_backfill "$rag_tenant_id" "$rag_document_id"
+uv run --locked python -m rag.policy_backfill "$rag_tenant_id" "$rag_document_id" --apply
+```
+
+The command uses `RAG_INDEX_ADMIN_DATABASE_URL` or the isolated test owner connection, verifies the stored original hash, and updates only the current published version's policy metadata in one transaction. The next answer uses the new metadata. Repeating the same backfill returns zero changes after the first successful apply.
+
+### Evaluate answers offline
+
+The collector provisions its own PostgreSQL database and ES index in `rag-dev`, publishes the synthetic fixtures, and saves per-case safety checks, evidence spans, answer contexts, paired differences, latency, and model usage. Run the development split for iteration and the holdout split once the configuration is frozen. Use authorized synthetic or de-identified captures when sending evidence to an external judge.
+
+```sh
+uv run --locked --env-file .env python -m rag.dev answer-eval --split development
+uv run --locked --env-file .env python -m rag.dev answer-eval --split all --paired --repeat 2
+uv run --group evaluation --locked --env-file .env python -m rag.answer_score \
+  .rag/dev/<run>/answers.json --jobs 4 --out .rag/dev/<run>/ragas.json
+```
+
+The `evaluation` dependency group locks RAGAS to `0.4.4`. Faithfulness uses the exact evidence objects from the answer generation prompt. Factual Correctness uses reviewed references. Rows without factual claims are skipped. Judge settings can be overridden with `RAG_JUDGE_MODEL`, `RAG_JUDGE_BASE_URL`, and `RAG_JUDGE_API_KEY`. [Validation results](../docs/other/answer-results.md)
+
 ## Verify Bailian model access
 
 The model client uses `text-embedding-v4` for 512-dimensional document and query vectors and `qwen3-rerank` for reranking. Put `DASHSCOPE_API_KEY` in the local, Git-ignored `.env` file at the repository root. Set `DASHSCOPE_HTTP_BASE_URL` if your key uses a different DashScope region or a workspace endpoint. [Bailian endpoints](https://help.aliyun.com/zh/model-studio/base-url)

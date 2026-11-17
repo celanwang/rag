@@ -17,10 +17,12 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .audit import emit
 from .auth import InvalidKey, Library, LibraryForbidden, LibraryNotFound, app_session, require_library
+from .answer import AnswerRequest, AnswerResponse, Answerer
 from .catalog import Catalog, DocumentPage, list_documents, list_libraries
 from .db import SCHEMA_OPTIONS
 from .documents import DocumentChange, InvalidReaders, change_document
 from .evidence import CitationNotFound, Evidence, citation, original, original_is_current
+from .generation import AnswerModel
 from .ingest import DocumentNotFound, JobNotFound, JobStatus, RequestConflict, Submission, job_status, submit
 from .keyword import KeywordIndex
 from .models import BailianModels
@@ -49,6 +51,11 @@ async def lifespan(app: FastAPI):
         executor = resources.enter_context(ThreadPoolExecutor(max_workers=8))
         app.state.pool = pool
         app.state.retriever = Retriever(pool, keyword, models, executor)
+        generator = resources.enter_context(AnswerModel.from_env())
+        answer_executor = resources.enter_context(ThreadPoolExecutor(max_workers=8))
+        app.state.answerer = Answerer(app.state.retriever, generator, answer_executor,
+                                     os.environ.get("RAG_POLICY_TIMEZONE", "Asia/Shanghai"),
+                                     agentic_enabled=os.environ.get("RAG_AGENTIC_ENABLED", "1") == "1")
         yield
 
 
@@ -191,6 +198,18 @@ def read_job(job_id: UUID, request: Request, key: ApiKey) -> JobStatus:
 @app.post("/v1/retrieve")
 def retrieve(search: Search, request: Request, key: ApiKey) -> dict:
     return request.app.state.retriever.retrieve(key, search)
+
+
+@app.post("/v1/answer")
+def answer(query: AnswerRequest, request: Request, key: ApiKey) -> AnswerResponse:
+    result = request.app.state.answerer.answer(key, query)
+    emit("answer.completed", request.state.trace_id, outcome=result.status, reason=result.reason,
+         strategy=result.strategy, elapsed_ms=result.elapsed_ms, model_calls=result.model_calls,
+         token_usage=result.token_usage,
+         rounds=[{"trigger": round_.trigger, "gap": round_.gap, "context_chars": round_.context_chars,
+                  "evidence_ids": [str(item) for item in round_.evidence_ids]}
+                 for round_ in result.rounds])
+    return result
 
 
 @app.get("/v1/citations/{chunk_id}")

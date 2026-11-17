@@ -11,6 +11,7 @@ import httpx
 from psycopg_pool import ConnectionPool
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
+from .answer_budget import AnswerBudget
 from .evidence import Evidence, ReadScope, load_evidence, neighbors, read_scope, vector_candidates
 from .keyword import KeywordIndex, KeywordIndexError, identifiers
 from .models import BailianModels, ModelError
@@ -138,25 +139,37 @@ class Retriever:
             raise ModelError("Bailian credentials are unavailable")
         return self.models
 
-    def recall(self, branch: Branch, key: str, scope: ReadScope, search: Search) -> tuple[list[UUID], dict]:
+    def recall(self, branch: Branch, key: str, scope: ReadScope, search: Search,
+               budget: AnswerBudget | None = None) -> tuple[list[UUID], dict]:
         started = perf_counter()
+        if budget:
+            budget.remaining()
         if branch == "keyword":
             ids = self.index.search(
                 scope.identity.tenant, scope.library.id, scope.identity.app, search.question, search.candidates,
             )
             return ids, {"keyword": (perf_counter() - started) * 1000}
 
-        embedding = self.model_client().query(search.question)
+        model = self.model_client()
+        embedding = (model.query(search.question, timeout=budget.model_timeout("embedding"))
+                     if budget else model.query(search.question))
+        if budget:
+            budget.remaining()
         embedded = perf_counter()
         ids = vector_candidates(self.pool, key, scope, embedding, search.candidates)
         return ids, {"embedding": (embedded - started) * 1000, "vector": (perf_counter() - embedded) * 1000}
 
     def retrieve(self, key: str, search: Search) -> dict:
-        started = perf_counter()
         scope = read_scope(self.pool, key, search.knowledge_base_code)
+        return self.retrieve_scoped(key, scope, search)
+
+    def retrieve_scoped(self, key: str, scope: ReadScope, search: Search,
+                        budget: AnswerBudget | None = None, *, policy_search: Search | None = None) -> dict:
+        rules = policy_search or search
+        started = perf_counter()
         recall_started = perf_counter()
         pending = {
-            branch: self.executor.submit(self.recall, branch, key, scope, search)
+            branch: self.executor.submit(self.recall, branch, key, scope, search, budget)
             for branch in BRANCHES[search.mode]
         }
         recalled = {}
@@ -164,7 +177,7 @@ class Retriever:
         degraded = []
         for branch, future in pending.items():
             try:
-                ids, timings = future.result()
+                ids, timings = future.result(timeout=budget.remaining() if budget else None)
                 recalled[branch] = ids
                 stage_ms.update(timings)
             except (httpx.HTTPError, KeywordIndexError, ModelError) as error:
@@ -186,13 +199,16 @@ class Retriever:
         fused = rrf(list(rankings.values()))
         stage_ms["fusion"] = (perf_counter() - step) * 1000
 
-        ordered, _ = order_policies(fused, authorized, search)
+        ordered, _ = order_policies(fused, authorized, rules)
         shortlist = []
         if search.mode == "rerank" and ordered:
             step = perf_counter()
             shortlist = ordered[:search.rerank_limit]
             try:
-                scores = self.model_client().rerank(search.question, [authorized[chunk].passage() for chunk in shortlist])
+                model = self.model_client()
+                passages = [authorized[chunk].passage() for chunk in shortlist]
+                scores = (model.rerank(search.question, passages, timeout=budget.model_timeout("rerank"))
+                          if budget else model.rerank(search.question, passages))
                 ordered = [chunk for chunk, _ in sorted(
                     zip(shortlist, scores, strict=True), key=lambda item: (-item[1], item[0]),
                 )]
@@ -205,7 +221,7 @@ class Retriever:
         anchor_ids = ordered[:search.top_k]
         related = neighbors(self.pool, key, scope, anchor_ids) if search.expand_neighbors and anchor_ids else {}
         current = load_evidence(self.pool, key, scope, set(authorized) | set(related))
-        ordered, _ = order_policies([chunk for chunk in ordered if chunk in current], current, search)
+        ordered, _ = order_policies([chunk for chunk in ordered if chunk in current], current, rules)
         result = {
             "results": [current[chunk] for chunk in ordered if chunk in current][:search.top_k],
             "mode": search.mode,
@@ -228,19 +244,29 @@ class Retriever:
                 if len(supplements) >= 4:
                     break
             result["supplemental"] = supplements
-        if search.interpret or search.as_of is not None:
-            eligible, conflicts = order_policies([chunk for chunk in fused if chunk in current], current, search)
+        if search.interpret or search.as_of is not None or budget:
+            eligible, conflicts = order_policies([chunk for chunk in fused if chunk in current], current, rules)
             result["policy_conflicts"] = [current[chunk] for chunk in conflicts]
-        if search.interpret:
+        if search.interpret or budget:
             result["query_hints"] = {}
-            hint = identifier_hint(search.question, [current[chunk] for chunk in eligible])
+            hint = identifier_hint(rules.question, [current[chunk] for chunk in eligible])
             if hint is not None:
                 result["query_hints"].update(hint)
             policies = [policy for chunk in eligible if (policy := current[chunk].policy()) is not None]
-            scopes = scope_hints(policies, search.question)
+            scopes = scope_hints(policies, rules.question)
             if scopes:
                 result["query_hints"]["possible_scopes"] = scopes
             result["needs_clarification"] = bool(scopes or (hint and "possible_identifiers" in hint))
+        if budget:
+            budget.remaining()
+            result["_reviewed"] = [current[chunk] for chunk in eligible]
+            result["_policy_unavailable"] = bool(
+                any((policy := item.policy()) and
+                    (policy.scope_label in rules.question or any(label and label in rules.question
+                                                                 for label in policy.topic_labels))
+                    for item in current.values())
+                and not policies
+            )
         stage_ms["authorization_final"] = (perf_counter() - step) * 1000
         if search.debug:
             result["debug"] = {

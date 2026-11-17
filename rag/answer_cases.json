@@ -1,0 +1,515 @@
+{
+  "documents": [
+    {
+      "id": "inspection",
+      "library": "basics",
+      "text": "XAL-200 的现场检修周期是每 18 天。",
+      "restricted": false
+    },
+    {
+      "id": "torque",
+      "library": "partial",
+      "text": "VX-203 的安装扭矩为 18 牛·米。\n\n本记录未收录 VX-203 安装后的保持时间。",
+      "restricted": false
+    },
+    {
+      "id": "ordinary",
+      "library": "scope",
+      "text": "<!-- rag-policy {\"普通商品规则\": {\"id\": \"ordinary\", \"rule\": \"returns\", \"scope\": \"ordinary\", \"scope_label\": \"普通商品\", \"authority\": 5, \"value\": \"12日\", \"effective_from\": \"2026-01-01\", \"topic_labels\": [\"退货\", \"签收\"]}} -->\n# 普通商品规则\n\n普通商品退货期是签收后 12 日。",
+      "restricted": false
+    },
+    {
+      "id": "perishable",
+      "library": "scope",
+      "text": "<!-- rag-policy {\"生鲜商品规则\": {\"id\": \"perishable\", \"rule\": \"returns\", \"scope\": \"perishable\", \"scope_label\": \"生鲜商品\", \"authority\": 5, \"value\": \"24小时\", \"effective_from\": \"2026-01-01\", \"topic_labels\": [\"退货\", \"签收\"]}} -->\n# 生鲜商品规则\n\n生鲜商品发生质量问题时只可在签收后 24 小时内申请售后。",
+      "restricted": false
+    },
+    {
+      "id": "pickup-a",
+      "library": "conflict",
+      "text": "<!-- rag-policy {\"门店自提制度\": {\"id\": \"pickup-a\", \"rule\": \"pickup\", \"scope\": \"web\", \"scope_label\": \"自提\", \"authority\": 5, \"value\": \"48小时\", \"effective_from\": \"2026-01-01\", \"topic_labels\": [\"自提\"]}} -->\n# 门店自提制度\n\n官网订单自提期限为通知后 48 小时。",
+      "restricted": false
+    },
+    {
+      "id": "pickup-b",
+      "library": "conflict",
+      "text": "<!-- rag-policy {\"客服自提制度\": {\"id\": \"pickup-b\", \"rule\": \"pickup\", \"scope\": \"web\", \"scope_label\": \"自提\", \"authority\": 5, \"value\": \"72小时\", \"effective_from\": \"2026-01-01\", \"topic_labels\": [\"自提\"]}} -->\n# 客服自提制度\n\n官网订单自提期限为通知后 72 小时。",
+      "restricted": false
+    },
+    {
+      "id": "dated",
+      "library": "dated",
+      "text": "<!-- rag-policy {\"零曜商城退货规则\": {\"id\": \"start-sept\", \"rule\": \"returns\", \"scope\": \"standard\", \"scope_label\": \"普通商品\", \"authority\": 5, \"value\": \"15日\", \"effective_from\": \"2026-09-01\", \"topic_labels\": [\"退货\", \"签收\"]}} -->\n# 零曜商城退货规则\n\n普通商品自签收日起 15 个自然日内可以申请退货。",
+      "restricted": false
+    },
+    {
+      "id": "protected",
+      "library": "members",
+      "text": "XMA-993 的授权封存编号是 VAULT-CANARY-918。",
+      "restricted": true
+    },
+    {
+      "id": "relay-routing",
+      "library": "relay",
+      "text": "# RLY-812 告警复位交接索引\n\nRLY-812 对应的告警复位交接索引是 MEADOW-392。\n\n执行参数位于交接索引指定的卡片。",
+      "restricted": false
+    },
+    {
+      "id": "relay-action",
+      "library": "relay",
+      "text": "# MEADOW-392\n\nMEADOW-392 的复位前置动作是关闭蓝色隔离闸。",
+      "restricted": false
+    },
+    {
+      "id": "relay-note-0",
+      "library": "relay",
+      "text": "# RLY-812 告警复位旧工单\n\nRLY-812 的告警复位资料已归档。旧工单仅记录流转编号和提交责任人。",
+      "restricted": false
+    },
+    {
+      "id": "relay-note-1",
+      "library": "relay",
+      "text": "# RLY-812 告警复位监控登记\n\nRLY-812 的告警复位资料已归档。监控登记仅记录流转编号和提交责任人。",
+      "restricted": false
+    },
+    {
+      "id": "relay-note-2",
+      "library": "relay",
+      "text": "# RLY-812 告警复位现场照片\n\nRLY-812 的告警复位资料已归档。现场照片仅记录流转编号和提交责任人。",
+      "restricted": false
+    },
+    {
+      "id": "relay-note-3",
+      "library": "relay",
+      "text": "# RLY-812 告警复位沟通记录\n\nRLY-812 的告警复位资料已归档。沟通记录仅记录流转编号和提交责任人。",
+      "restricted": false
+    },
+    {
+      "id": "relay-note-4",
+      "library": "relay",
+      "text": "# RLY-812 告警复位例行清单\n\nRLY-812 的告警复位资料已归档。例行清单仅记录流转编号和提交责任人。",
+      "restricted": false
+    },
+    {
+      "id": "relay-note-5",
+      "library": "relay",
+      "text": "# RLY-812 告警复位流转记录\n\nRLY-812 的告警复位资料已归档。流转记录仅记录流转编号和提交责任人。",
+      "restricted": false
+    },
+    {
+      "id": "relay-note-6",
+      "library": "relay",
+      "text": "# RLY-812 告警复位巡检追溯\n\nRLY-812 的告警复位资料已归档。巡检追溯仅记录流转编号和提交责任人。",
+      "restricted": false
+    },
+    {
+      "id": "pump-routing",
+      "library": "pump",
+      "text": "# PMP-417 油泵复位交接索引\n\nPMP-417 对应的油泵复位交接索引是 ORBIT-763。\n\n执行参数位于交接索引指定的卡片。",
+      "restricted": false
+    },
+    {
+      "id": "pump-action",
+      "library": "pump",
+      "text": "# ORBIT-763\n\nORBIT-763 要求在复位前释放 B 侧旁通阀。",
+      "restricted": false
+    },
+    {
+      "id": "pump-note-0",
+      "library": "pump",
+      "text": "# PMP-417 油泵复位旧工单\n\nPMP-417 的油泵复位资料已归档。旧工单仅记录流转编号和提交责任人。",
+      "restricted": false
+    },
+    {
+      "id": "pump-note-1",
+      "library": "pump",
+      "text": "# PMP-417 油泵复位监控登记\n\nPMP-417 的油泵复位资料已归档。监控登记仅记录流转编号和提交责任人。",
+      "restricted": false
+    },
+    {
+      "id": "pump-note-2",
+      "library": "pump",
+      "text": "# PMP-417 油泵复位现场照片\n\nPMP-417 的油泵复位资料已归档。现场照片仅记录流转编号和提交责任人。",
+      "restricted": false
+    },
+    {
+      "id": "pump-note-3",
+      "library": "pump",
+      "text": "# PMP-417 油泵复位沟通记录\n\nPMP-417 的油泵复位资料已归档。沟通记录仅记录流转编号和提交责任人。",
+      "restricted": false
+    },
+    {
+      "id": "pump-note-4",
+      "library": "pump",
+      "text": "# PMP-417 油泵复位例行清单\n\nPMP-417 的油泵复位资料已归档。例行清单仅记录流转编号和提交责任人。",
+      "restricted": false
+    },
+    {
+      "id": "pump-note-5",
+      "library": "pump",
+      "text": "# PMP-417 油泵复位流转记录\n\nPMP-417 的油泵复位资料已归档。流转记录仅记录流转编号和提交责任人。",
+      "restricted": false
+    },
+    {
+      "id": "pump-note-6",
+      "library": "pump",
+      "text": "# PMP-417 油泵复位巡检追溯\n\nPMP-417 的油泵复位资料已归档。巡检追溯仅记录流转编号和提交责任人。",
+      "restricted": false
+    },
+    {
+      "id": "fan-routing",
+      "library": "fan",
+      "text": "# FAN-526 风机复位交接索引\n\nFAN-526 对应的风机复位交接索引是 LANTERN-481。\n\n执行参数位于交接索引指定的卡片。",
+      "restricted": false
+    },
+    {
+      "id": "fan-action",
+      "library": "fan",
+      "text": "# LANTERN-481\n\nLANTERN-481 要求等待紫色信号灯闪烁三次。",
+      "restricted": false
+    },
+    {
+      "id": "fan-note-0",
+      "library": "fan",
+      "text": "# FAN-526 风机复位旧工单\n\nFAN-526 的风机复位资料已归档。旧工单仅记录流转编号和提交责任人。",
+      "restricted": false
+    },
+    {
+      "id": "fan-note-1",
+      "library": "fan",
+      "text": "# FAN-526 风机复位监控登记\n\nFAN-526 的风机复位资料已归档。监控登记仅记录流转编号和提交责任人。",
+      "restricted": false
+    },
+    {
+      "id": "fan-note-2",
+      "library": "fan",
+      "text": "# FAN-526 风机复位现场照片\n\nFAN-526 的风机复位资料已归档。现场照片仅记录流转编号和提交责任人。",
+      "restricted": false
+    },
+    {
+      "id": "fan-note-3",
+      "library": "fan",
+      "text": "# FAN-526 风机复位沟通记录\n\nFAN-526 的风机复位资料已归档。沟通记录仅记录流转编号和提交责任人。",
+      "restricted": false
+    },
+    {
+      "id": "fan-note-4",
+      "library": "fan",
+      "text": "# FAN-526 风机复位例行清单\n\nFAN-526 的风机复位资料已归档。例行清单仅记录流转编号和提交责任人。",
+      "restricted": false
+    },
+    {
+      "id": "fan-note-5",
+      "library": "fan",
+      "text": "# FAN-526 风机复位流转记录\n\nFAN-526 的风机复位资料已归档。流转记录仅记录流转编号和提交责任人。",
+      "restricted": false
+    },
+    {
+      "id": "fan-note-6",
+      "library": "fan",
+      "text": "# FAN-526 风机复位巡检追溯\n\nFAN-526 的风机复位资料已归档。巡检追溯仅记录流转编号和提交责任人。",
+      "restricted": false
+    },
+    {
+      "id": "handoff-routing",
+      "library": "handoff",
+      "text": "# ZPD-614 交接索引\n\nZPD-614 的交接索引指向 CEDAR-839。\n\n关联卡片只记字母和数字组合，表示处置等级。",
+      "restricted": false
+    },
+    {
+      "id": "handoff-card",
+      "library": "handoff",
+      "text": "# CEDAR-839\n\nCEDAR-839：Q4。",
+      "restricted": false
+    },
+    {
+      "id": "handoff-log-37",
+      "library": "handoff",
+      "restricted": false,
+      "text": "# ZPD-614 巡检交接索引\n\nZPD-614 的巡检交接索引中，处置等级一列没有填写。此登记记录处理人和审批编号。"
+    },
+    {
+      "id": "handoff-log-38",
+      "library": "handoff",
+      "restricted": false,
+      "text": "# ZPD-614 交付交接索引\n\nZPD-614 的交付交接索引中，处置等级一列没有填写。此登记记录处理人和审批编号。"
+    },
+    {
+      "id": "handoff-log-39",
+      "library": "handoff",
+      "restricted": false,
+      "text": "# ZPD-614 监控交接索引\n\nZPD-614 的监控交接索引中，处置等级一列没有填写。此登记记录处理人和审批编号。"
+    },
+    {
+      "id": "handoff-log-40",
+      "library": "handoff",
+      "restricted": false,
+      "text": "# ZPD-614 抽样交接索引\n\nZPD-614 的抽样交接索引中，处置等级一列没有填写。此登记记录处理人和审批编号。"
+    },
+    {
+      "id": "handoff-log-41",
+      "library": "handoff",
+      "restricted": false,
+      "text": "# ZPD-614 质检交接索引\n\nZPD-614 的质检交接索引中，处置等级一列没有填写。此登记记录处理人和审批编号。"
+    },
+    {
+      "id": "handoff-log-42",
+      "library": "handoff",
+      "restricted": false,
+      "text": "# ZPD-614 变更交接索引\n\nZPD-614 的变更交接索引中，处置等级一列没有填写。此登记记录处理人和审批编号。"
+    },
+    {
+      "id": "handoff-log-43",
+      "library": "handoff",
+      "restricted": false,
+      "text": "# ZPD-614 审批交接索引\n\nZPD-614 的审批交接索引中，处置等级一列没有填写。此登记记录处理人和审批编号。"
+    },
+    {
+      "id": "handoff-log-44",
+      "library": "handoff",
+      "restricted": false,
+      "text": "# ZPD-614 归档交接索引\n\nZPD-614 的归档交接索引中，处置等级一列没有填写。此登记记录处理人和审批编号。"
+    }
+  ],
+  "cases": [
+    {
+      "id": "A01",
+      "library": "basics",
+      "question": "XAL-200 的现场检修周期是多少？",
+      "expected_status": "answered",
+      "split": "development",
+      "group": "simple",
+      "tenant": "alpha",
+      "gold": [
+        [
+          "inspection",
+          "每 18 天"
+        ]
+      ],
+      "facts": [
+        "18"
+      ],
+      "reference_answer": "XAL-200 每 18 天需要现场检修。"
+    },
+    {
+      "id": "A02",
+      "library": "partial",
+      "question": "VX-203 的安装扭矩和安装后的保持时间分别是多少？",
+      "expected_status": "partial",
+      "split": "development",
+      "group": "partial",
+      "tenant": "alpha",
+      "gold": [
+        [
+          "torque",
+          "18 牛·米"
+        ]
+      ],
+      "facts": [
+        "18"
+      ],
+      "reference_answer": "安装扭矩为 18 牛·米，现有记录缺少保持时间。"
+    },
+    {
+      "id": "A03",
+      "library": "scope",
+      "question": "签收以后还能退货吗，有多长时间？",
+      "expected_status": "needs_clarification",
+      "split": "development",
+      "group": "ambiguous",
+      "tenant": "alpha",
+      "gold": [],
+      "facts": []
+    },
+    {
+      "id": "A04",
+      "library": "conflict",
+      "question": "官网订单的自提期限是多久？",
+      "expected_status": "policy_conflict",
+      "split": "development",
+      "group": "conflict",
+      "tenant": "alpha",
+      "gold": [
+        [
+          "pickup-a",
+          "48 小时"
+        ],
+        [
+          "pickup-b",
+          "72 小时"
+        ]
+      ],
+      "facts": [],
+      "as_of": "2026-11-17"
+    },
+    {
+      "id": "A05",
+      "library": "dated",
+      "question": "以 2026 年 9 月 1 日为准，普通商品退货期是多少？",
+      "expected_status": "answered",
+      "split": "development",
+      "group": "temporal",
+      "tenant": "alpha",
+      "gold": [
+        [
+          "dated",
+          "15 个自然日"
+        ]
+      ],
+      "facts": [
+        "15"
+      ],
+      "reference_answer": "2026 年 9 月 1 日起适用的普通商品退货期为签收日起 15 个自然日。",
+      "as_of": "2026-09-01"
+    },
+    {
+      "id": "A06",
+      "library": "dated",
+      "question": "2026 年 8 月 31 日当时的普通商品退货政策期限是多少？",
+      "expected_status": "insufficient",
+      "split": "development",
+      "group": "temporal",
+      "tenant": "alpha",
+      "gold": [],
+      "facts": [],
+      "as_of": "2026-08-31"
+    },
+    {
+      "id": "A07",
+      "library": "members",
+      "question": "XMA-993 的授权封存编号是什么？",
+      "expected_status": "insufficient",
+      "split": "development",
+      "group": "acl",
+      "tenant": "alpha",
+      "gold": [],
+      "facts": []
+    },
+    {
+      "id": "A08",
+      "library": "relay",
+      "question": "RLY-812 的告警复位交接索引是什么，复位前具体要做什么？",
+      "expected_status": "answered",
+      "split": "development",
+      "group": "multistep",
+      "tenant": "alpha",
+      "gold": [
+        [
+          "relay-routing",
+          "MEADOW-392"
+        ],
+        [
+          "relay-action",
+          "关闭蓝色隔离闸"
+        ]
+      ],
+      "facts": [
+        "MEADOW-392",
+        "蓝色隔离闸"
+      ],
+      "reference_answer": "RLY-812 对应的告警复位交接索引是 MEADOW-392。复位前需关闭蓝色隔离闸。"
+    },
+    {
+      "id": "A09",
+      "library": "handoff",
+      "question": "ZPD-614 的交接索引指向哪个编号？对应卡片上记录的处置等级是什么？",
+      "expected_status": "answered",
+      "split": "development",
+      "group": "multistep",
+      "tenant": "alpha",
+      "gold": [
+        [
+          "handoff-routing",
+          "CEDAR-839"
+        ],
+        [
+          "handoff-card",
+          "Q4"
+        ]
+      ],
+      "facts": [
+        "CEDAR-839",
+        "Q4"
+      ],
+      "reference_answer": "ZPD-614 的交接索引指向 CEDAR-839。该卡上的处置等级为 Q4。"
+    },
+    {
+      "id": "H01",
+      "library": "pump",
+      "question": "PMP-417 的油泵复位交接索引是什么？进入复位前做什么动作？",
+      "expected_status": "answered",
+      "split": "holdout",
+      "group": "multistep",
+      "tenant": "alpha",
+      "gold": [
+        [
+          "pump-routing",
+          "ORBIT-763"
+        ],
+        [
+          "pump-action",
+          "释放 B 侧旁通阀"
+        ]
+      ],
+      "facts": [
+        "ORBIT-763",
+        "旁通阀"
+      ],
+      "reference_answer": "PMP-417 对应的油泵复位交接索引是 ORBIT-763。复位前要释放 B 侧旁通阀。"
+    },
+    {
+      "id": "H02",
+      "library": "fan",
+      "question": "FAN-526 的风机复位交接索引是什么？复位前要确认什么信号？",
+      "expected_status": "answered",
+      "split": "holdout",
+      "group": "multistep",
+      "tenant": "alpha",
+      "gold": [
+        [
+          "fan-routing",
+          "LANTERN-481"
+        ],
+        [
+          "fan-action",
+          "紫色信号灯闪烁三次"
+        ]
+      ],
+      "facts": [
+        "LANTERN-481",
+        "紫色信号灯闪烁三次"
+      ],
+      "reference_answer": "FAN-526 对应的风机复位交接索引是 LANTERN-481。需等待紫色信号灯闪烁三次。"
+    },
+    {
+      "id": "H03",
+      "library": "basics",
+      "question": "XAL-200 多久做一次现场检修？",
+      "expected_status": "answered",
+      "split": "holdout",
+      "group": "simple",
+      "tenant": "alpha",
+      "gold": [
+        [
+          "inspection",
+          "每 18 天"
+        ]
+      ],
+      "facts": [
+        "18"
+      ],
+      "reference_answer": "XAL-200 的现场检修周期为 18 天。"
+    },
+    {
+      "id": "H04",
+      "library": "basics",
+      "question": "XAL-200 多久做一次现场检修？",
+      "expected_status": "insufficient",
+      "split": "holdout",
+      "group": "acl",
+      "tenant": "beta",
+      "gold": [],
+      "facts": []
+    }
+  ]
+}

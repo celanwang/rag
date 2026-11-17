@@ -45,15 +45,17 @@ class BailianModels:
         with httpx.Client(base_url=base_url, headers={"Authorization": f"Bearer {key}"}, timeout=20) as client:
             yield cls(client)
 
-    def request(self, path: str, model: str, inputs: dict, parameters: dict, field: str) -> list[dict]:
-        response = self.client.post(path, json={"model": model, "input": inputs, "parameters": parameters})
+    def request(self, path: str, model: str, inputs: dict, parameters: dict, field: str,
+                timeout: float | None = None) -> list[dict]:
+        options = {"timeout": timeout} if timeout is not None else {}
+        response = self.client.post(path, json={"model": model, "input": inputs, "parameters": parameters}, **options)
         response.raise_for_status()
         try:
             return response.json()["output"][field]
         except (KeyError, TypeError, ValueError):
             raise ModelError(f"Bailian returned an invalid response for {model}.") from None
 
-    def _embed(self, texts: list[str], text_type: str) -> list[list[float]]:
+    def _embed(self, texts: list[str], text_type: str, timeout: float | None = None) -> list[list[float]]:
         vectors = []
         for start in range(0, len(texts), EMBEDDING_BATCH_SIZE):
             batch = texts[start:start + EMBEDDING_BATCH_SIZE]
@@ -63,6 +65,7 @@ class BailianModels:
                 {"texts": batch},
                 {"dimension": EMBEDDING_DIMENSIONS, "text_type": text_type},
                 "embeddings",
+                timeout,
             )
             batch_vectors = ordered_values(rows, "text_index", "embedding", len(batch))
             if any(
@@ -77,10 +80,10 @@ class BailianModels:
     def embed(self, passages: list[str]) -> list[list[float]]:
         return self._embed(passages, "document")
 
-    def query(self, question: str) -> list[float]:
-        return self._embed([question], "query")[0]
+    def query(self, question: str, *, timeout: float | None = None) -> list[float]:
+        return self._embed([question], "query", timeout)[0]
 
-    def rerank(self, question: str, passages: list[str]) -> list[float]:
+    def rerank(self, question: str, passages: list[str], *, timeout: float | None = None) -> list[float]:
         if not passages:
             return []
         rows = self.request(
@@ -89,6 +92,7 @@ class BailianModels:
             {"query": question, "documents": passages},
             {"top_n": len(passages), "return_documents": False},
             "results",
+            timeout,
         )
         scores = ordered_values(rows, "index", "relevance_score", len(passages))
         if not all(finite_number(score) for score in scores):

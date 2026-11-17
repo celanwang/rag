@@ -16,7 +16,7 @@ from .jobs import (
     LEASE_SECONDS, Lease, LeaseLost, complete, fail_in_transaction, lock_lease, run_worker, tenant_transaction,
 )
 from .models import EMBEDDING_BATCH_SIZE, BailianModels, ModelError
-from .policy import Policy, read_metadata
+from .policy import Policy, read_metadata, section_policies
 from .text import CONFIG, MAX_UPLOAD_BYTES, Chunk, InvalidText, decode_text, split_text
 
 @dataclass(frozen=True)
@@ -126,9 +126,7 @@ def process(conn: psycopg.Connection, lease: Lease, models: BailianModels) -> No
         if not chunks:
             raise InvalidText("Document contains no indexable text")
         try:
-            policies = read_metadata(text, markdown)
-            if not policies.keys() <= {chunk.heading for chunk in chunks}:
-                raise ValueError("Policy metadata names a section with no evidence")
+            policies = section_policies({chunk.heading for chunk in chunks}, read_metadata(text, markdown))
         except ValueError as error:
             raise InvalidText("Invalid policy metadata") from error
 

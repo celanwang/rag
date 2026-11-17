@@ -9,6 +9,7 @@ A multi-tenant retrieval-augmented generation (RAG) service.
 - Tenant-scoped document, version, and job storage.
 - Asynchronous keyword index synchronization for published documents.
 - Vector, keyword, and hybrid retrieval with optional reranking, source citations, and original downloads.
+- Cited question answering with an optional second lookup and offline RAGAS evaluation.
 - Local web workbench for tenant-scoped retrieval, document browsing, and ingestion.
 
 ## Architecture
@@ -35,6 +36,7 @@ The PoC provides reproducible hybrid retrieval benchmarks and a RAGFlow baseline
 - [Start and inspect rag-dev](rag/README.md#persistent-rag-dev)
 - [Run the local web workbench](frontend/README.md)
 - [Business retrieval benchmark](docs/other/retrieval-results.md)
+- [Cited question answering](rag/README.md#answer-with-citations)
 - [Run and verify the PoC](poc/README.md)
 - [Compose and database initialization files](docs/README.md#env)
 - [Contributing](CONTRIBUTING.md)
