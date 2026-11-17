@@ -16,7 +16,7 @@
 | Elasticsearch | 提供 BM25、短语和编号匹配。关键词索引可由 PostgreSQL 重建。 |
 | Python Worker | 入库与 ES 同步分别运行，从 PostgreSQL 的 `jobs` 表各自领取 `ingest` 和 `sync` 任务。 |
 
-首批数据库包含八张业务表。 [数据库设计](schema.md)
+首批数据库包含八张业务表。 [数据库设计](schema.md) · [Docker 环境](../env/docker.md)
 
 ## 权限
 

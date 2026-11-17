@@ -25,6 +25,7 @@ FastAPI serves the ingestion and retrieval API. PostgreSQL stores document versi
 ## Development
 
 - [Run and verify the PoC](poc/README.md)
+- [Docker and SQL environments](docs/README.md#env)
 - [Validation results](docs/poc-results.md)
 - [Contributing](CONTRIBUTING.md)
 - [Changelog](CHANGELOG.md)

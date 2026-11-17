@@ -17,6 +17,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
 ### Changed
 
 - Consolidate prototype Python modules and fixtures under `poc/` and use `poc.*` entry points for the API and verification commands.
+- Organize phase-one planning and local environment guides, with a dedicated run guide for the PoC.
 
 ### Security
 
