@@ -5,7 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import ExitStack, asynccontextmanager
 from typing import Annotated
 from urllib.parse import quote
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import psycopg
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
@@ -15,6 +15,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from psycopg_pool import ConnectionPool
 from pydantic import BaseModel, ConfigDict, Field
 
+from .audit import emit
 from .auth import InvalidKey, Library, LibraryForbidden, LibraryNotFound, app_session, require_library
 from .db import SCHEMA_OPTIONS
 from .documents import DocumentChange, InvalidReaders, change_document
@@ -53,9 +54,34 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="RAG", lifespan=lifespan)
 
 
+def log_request(request: Request, status: int) -> None:
+    route = getattr(request.scope.get("route"), "path", None)
+    emit("http.request", request.state.trace_id, outcome="success" if status < 400 else "error",
+         method=request.method, route=route, status=status)
+
+
+@app.middleware("http")
+async def trace_request(request: Request, call_next):
+    request.state.trace_id = uuid4()
+    try:
+        response = await call_next(request)
+    except Exception:
+        log_request(request, 500)
+        raise
+    response.headers["X-Request-ID"] = str(request.state.trace_id)
+    log_request(request, response.status_code)
+    return response
+
+
+@app.exception_handler(Exception)
+def internal_error(request: Request, _error: Exception) -> JSONResponse:
+    return JSONResponse({"detail": "Internal server error"}, status_code=500,
+                        headers={"X-Request-ID": str(request.state.trace_id)})
+
+
 @app.exception_handler(psycopg.Error)
-def database_error(_request: Request, error: psycopg.Error) -> JSONResponse:
-    logger.error("Database operation failed (%s)", type(error).__name__)
+def database_error(request: Request, error: psycopg.Error) -> JSONResponse:
+    logger.error("Database operation failed trace_id=%s error=%s", request.state.trace_id, type(error).__name__)
     return JSONResponse({"detail": "Database unavailable"}, status_code=503)
 
 
@@ -137,6 +163,7 @@ async def upload_document(
         body.extend(chunk)
     return await run_in_threadpool(
         submit, request.app.state.pool, key, code, idempotency_key, filename, bytes(body), document_id,
+        request.state.trace_id,
     )
 
 
@@ -163,7 +190,8 @@ def read_file(document_id: UUID, request: Request, key: ApiKey) -> Response:
         raise DocumentNotFound
     body = source.content
     if len(body) > MAX_UPLOAD_BYTES or hashlib.sha256(body).digest() != source.checksum:
-        logger.error("Original checksum mismatch document=%s version=%s", document_id, source.version_id)
+        logger.error("Original checksum mismatch trace_id=%s document=%s version=%s",
+                     request.state.trace_id, document_id, source.version_id)
         raise HTTPException(503, "Original unavailable")
     if not original_is_current(pool, key, document_id, source.version_id):
         raise DocumentNotFound
@@ -181,9 +209,9 @@ class Readers(BaseModel):
 
 @app.patch("/v1/documents/{document_id}/readers")
 def set_readers(document_id: UUID, change: Readers, request: Request, key: ApiKey) -> DocumentChange:
-    return change_document(request.app.state.pool, key, document_id, readers=change.readers)
+    return change_document(request.app.state.pool, key, document_id, request.state.trace_id, readers=change.readers)
 
 
 @app.delete("/v1/documents/{document_id}", status_code=202)
 def delete_document(document_id: UUID, request: Request, key: ApiKey) -> DocumentChange:
-    return change_document(request.app.state.pool, key, document_id, delete=True)
+    return change_document(request.app.state.pool, key, document_id, request.state.trace_id, delete=True)

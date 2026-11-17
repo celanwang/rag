@@ -11,14 +11,12 @@ import httpx
 import psycopg
 from psycopg.types.json import Jsonb
 
+from .audit import emit
 from .jobs import (
     LEASE_SECONDS, Lease, LeaseLost, complete, fail_in_transaction, lock_lease, run_worker, tenant_transaction,
 )
 from .models import EMBEDDING_BATCH_SIZE, BailianModels, ModelError
 from .text import CONFIG, MAX_UPLOAD_BYTES, Chunk, InvalidText, decode_text, split_text
-
-logger = logging.getLogger(__name__)
-
 
 @dataclass(frozen=True)
 class Source:
@@ -29,13 +27,15 @@ class Source:
     content: bytes
     checksum: bytes
     config: dict
+    actor: UUID
+    trace: UUID
 
 
 def read_source(conn: psycopg.Connection, lease: Lease) -> Source:
     with tenant_transaction(conn, lease):
         row = conn.execute(
             """
-            SELECT v.library, v.document, v.id, v.mime, v.content, v.checksum, v.config
+            SELECT v.library, v.document, v.id, v.mime, v.content, v.checksum, v.config, j.app, COALESCE(j.trace, j.id)
             FROM jobs AS j
             JOIN versions AS v
               ON (v.tenant, v.library, v.document, v.id) = (j.tenant, j.library, j.document, j.version)
@@ -98,10 +98,10 @@ def publish(
         ).fetchone()[0]
         conn.execute(
             """
-            INSERT INTO jobs (tenant, library, document, kind, revision, stage)
-            VALUES (%s, %s, %s, 'sync', %s, 'accepted')
+            INSERT INTO jobs (tenant, library, document, kind, revision, stage, app, trace)
+            VALUES (%s, %s, %s, 'sync', %s, 'accepted', %s, %s)
             """,
-            (lease.tenant, source.library, source.document, revision),
+            (lease.tenant, source.library, source.document, revision, source.actor, source.trace),
         )
         complete(conn, lease, "published")
         return True
@@ -126,10 +126,9 @@ def process(conn: psycopg.Connection, lease: Lease, models: BailianModels) -> No
             vectors.extend(models.embed([chunk.passage() for chunk in batch]))
         advance(conn, lease, "publish")
         published = publish(conn, lease, source, chunks, vectors)
-        logger.info(
-            "Ingest %s job=%s tenant=%s document=%s version=%s",
-            "published" if published else "superseded", lease.job, lease.tenant, source.document, source.version,
-        )
+        emit("document.publish", source.trace, outcome="published" if published else "superseded",
+             actor_type="app", actor=source.actor, service="ingest", tenant=lease.tenant,
+             job=lease.job, library=source.library, document=source.document, version=source.version)
         return
     except LeaseLost:
         return
@@ -147,7 +146,9 @@ def process(conn: psycopg.Connection, lease: Lease, models: BailianModels) -> No
     try:
         with tenant_transaction(conn, lease):
             state = fail_in_transaction(conn, lease, reason, retryable)
-        logger.warning("Ingest %s job=%s tenant=%s error=%s", state, lease.job, lease.tenant, reason)
+        emit("document.publish", source.trace, outcome=state, actor_type="app", actor=source.actor,
+             service="ingest", tenant=lease.tenant, job=lease.job, library=source.library,
+             document=source.document, version=source.version, error=reason)
     except LeaseLost:
         pass
 

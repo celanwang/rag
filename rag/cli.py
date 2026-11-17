@@ -4,10 +4,11 @@ import os
 import re
 from datetime import datetime
 from secrets import token_urlsafe
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import psycopg
 
+from .audit import emit_operator
 from .auth import key_digest
 from .db import SCHEMA_OPTIONS
 
@@ -89,15 +90,17 @@ def change_grant(conn: psycopg.Connection, args: argparse.Namespace) -> dict:
 
     params = (tenant, app[0], library[0], args.action)
     if args.command == "grant":
-        conn.execute(
+        result = conn.execute(
             "INSERT INTO grants (tenant, app, library, action) VALUES (%s, %s, %s, %s) ON CONFLICT DO NOTHING",
             params,
         )
     else:
-        conn.execute(
+        result = conn.execute(
             "DELETE FROM grants WHERE tenant = %s AND app = %s AND library = %s AND action = %s",
             params,
         )
+    args.audit = {"tenant": tenant, "subject_app": app[0], "library": library[0], "permission": args.action,
+                  "outcome": "changed" if result.rowcount else "unchanged"}
     return {"app": str(app[0]), "library": str(library[0]), "action": args.action}
 
 
@@ -109,6 +112,7 @@ def disable_app(conn: psycopg.Connection, args: argparse.Namespace) -> dict:
     ).fetchone()
     if row is None:
         raise ConfigurationError("Application not found in tenant.")
+    args.audit = {"tenant": tenant, "subject_app": row[0], "outcome": "disabled"}
     return {"id": str(row[0]), "active": False}
 
 
@@ -118,6 +122,7 @@ def disable_tenant(conn: psycopg.Connection, args: argparse.Namespace) -> dict:
     ).fetchone()
     if row is None:
         raise ConfigurationError("Tenant not found.")
+    args.audit = {"tenant": row[0], "outcome": "disabled"}
     return {"id": str(row[0]), "active": False}
 
 
@@ -178,6 +183,8 @@ def main() -> None:
     except psycopg.Error:
         parser.exit(1, "Database operation failed.\n")
 
+    if hasattr(args, "audit"):
+        emit_operator(f"permission.{args.command.replace('-', '_')}", uuid4(), **args.audit)
     print(json.dumps(result))
 
 

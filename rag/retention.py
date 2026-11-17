@@ -1,7 +1,9 @@
 from datetime import datetime, timedelta, timezone
+from uuid import uuid4
 
 import psycopg
 
+from .audit import emit_operator
 from .cli import tenant_id
 
 ELIGIBLE = """
@@ -52,5 +54,13 @@ def retain(conn: psycopg.Connection, code: str, *, days: int, limit: int, apply:
         else:
             chunks = conn.execute("SELECT count(*) FROM chunks WHERE tenant = %s AND version = ANY(%s)", scope).fetchone()[0]
 
-    return {"tenant": code, "cutoff": cutoff.isoformat(), "applied": apply,
-            "documents": len(documents), "versions": len(versions), "chunks": chunks}
+    result = {"tenant": code, "cutoff": cutoff.isoformat(), "applied": apply,
+              "documents": len(documents), "versions": len(versions), "chunks": chunks}
+    if apply:
+        trace = uuid4()
+        for version, document in rows:
+            emit_operator("document.purge", trace, outcome="deleted", tenant=tenant, document=document, version=version)
+        emit_operator("retention.apply", trace, outcome="completed", tenant=tenant, tenant_code=code,
+                      versions=len(versions), chunks=chunks, cutoff=cutoff.isoformat())
+        result["trace_id"] = str(trace)
+    return result

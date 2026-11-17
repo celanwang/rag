@@ -1,6 +1,5 @@
 import hashlib
 import json
-import logging
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import PurePath
@@ -10,11 +9,11 @@ import psycopg
 from psycopg.types.json import Jsonb
 from psycopg_pool import ConnectionPool
 
+from .audit import emit
 from .auth import Identity, app_session, require_library
 from .text import CONFIG, InvalidText, decode_text
 
 MIMES = {".md": "text/markdown", ".txt": "text/plain"}
-logger = logging.getLogger(__name__)
 
 
 class DocumentNotFound(Exception):
@@ -95,7 +94,7 @@ def lock_document(conn: psycopg.Connection, library: UUID, document: UUID) -> No
 
 def record_submission(
     conn: psycopg.Connection, identity: Identity, library: UUID, key: str, fingerprint: bytes,
-    document: UUID | None, version: UUID, filename: str, mime: str, content: bytes, checksum: bytes,
+    document: UUID | None, version: UUID, filename: str, mime: str, content: bytes, checksum: bytes, trace: UUID,
 ) -> Submission:
     tenant = identity.tenant
     if document is None:
@@ -122,17 +121,17 @@ def record_submission(
     conn.execute("UPDATE documents SET target = %s WHERE id = %s", (version, document))
     job = conn.execute(
         """
-        INSERT INTO jobs (tenant, library, document, kind, app, version, request, fingerprint, stage)
-        VALUES (%s, %s, %s, 'ingest', %s, %s, %s, %s, 'accepted') RETURNING id
+        INSERT INTO jobs (tenant, library, document, kind, app, version, request, fingerprint, stage, trace)
+        VALUES (%s, %s, %s, 'ingest', %s, %s, %s, %s, 'accepted', %s) RETURNING id
         """,
-        (tenant, library, document, identity.app, version, key, fingerprint),
+        (tenant, library, document, identity.app, version, key, fingerprint, trace),
     ).fetchone()[0]
     return Submission(job, document, version)
 
 
 def submit(
     pool: ConnectionPool, api_key: str, code: str, request_key: str,
-    filename: str, body: bytes, document: UUID | None,
+    filename: str, body: bytes, document: UUID | None, trace: UUID,
 ) -> Submission:
     mime = upload_mime(filename)
     decode_text(body)
@@ -146,13 +145,12 @@ def submit(
         previous = existing_submission(conn, identity, library.id, request_key, fingerprint)
         if previous:
             return previous
-        accepted = record_submission(
-            conn, identity, library.id, request_key, fingerprint, document, uuid4(), filename, mime, body, checksum,
+        accepted = previous or record_submission(
+            conn, identity, library.id, request_key, fingerprint, document, uuid4(), filename, mime, body, checksum, trace,
         )
-    logger.info(
-        "Upload accepted tenant=%s app=%s job=%s document=%s version=%s",
-        identity.tenant, identity.app, accepted.job_id, accepted.document_id, accepted.version_id,
-    )
+    emit("document.upload", trace, outcome="replayed" if previous else "accepted",
+         actor_type="app", actor=identity.app, tenant=identity.tenant, library=library.id,
+         job=accepted.job_id, document=accepted.document_id, version=accepted.version_id)
     return accepted
 
 

@@ -1,3 +1,4 @@
+import json
 import os
 import unittest
 
@@ -53,8 +54,13 @@ class RetentionTest(IngestionFixture, unittest.TestCase):
         with self.owner.transaction():
             self.owner.execute("SELECT id FROM rag.documents WHERE id = %s FOR UPDATE", (document,))
             self.assertEqual(self.clean()["versions"], 0)
-        applied = self.clean()
+        with self.assertLogs("rag.audit") as log:
+            applied = self.clean()
         self.assertEqual((applied["versions"], applied["chunks"]), (1, preview["chunks"]))
+        entries = [json.loads(record.getMessage()) for record in log.records]
+        purge = next(entry for entry in entries if entry["event"] == "document.purge")
+        self.assertEqual((purge["trace_id"], purge["tenant"], purge["version"]),
+                         (applied["trace_id"], self.alpha_id, first["version_id"]))
         self.assertEqual(self.clean()["versions"], 0)
 
         ids = self.owner.execute("SELECT id::text FROM rag.versions").fetchall()

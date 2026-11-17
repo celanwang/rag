@@ -8,11 +8,9 @@ from uuid import UUID
 import httpx
 import psycopg
 
+from .audit import emit
 from .jobs import Lease, LeaseLost, complete, fail_in_transaction, lock_lease, run_worker, tenant_transaction
 from .keyword import IndexChunk, KeywordIndex, KeywordIndexError
-
-logger = logging.getLogger(__name__)
-
 
 @dataclass(frozen=True)
 class Document:
@@ -22,6 +20,9 @@ class Document:
     revision: int
     synced: int | None
     readers: list[UUID] | None
+    requested: int
+    trace: UUID
+    actor: UUID | None
 
 
 def lock_document(conn: psycopg.Connection, lease: Lease) -> Document:
@@ -29,7 +30,7 @@ def lock_document(conn: psycopg.Connection, lease: Lease) -> Document:
     row = conn.execute(
         """
         SELECT d.id, d.library, CASE WHEN d.deleted IS NULL THEN d.published END,
-               d.revision, d.synced, d.readers
+               d.revision, d.synced, d.readers, j.revision, COALESCE(j.trace, j.id), j.app
         FROM jobs AS j
         JOIN documents AS d ON (d.tenant, d.library, d.id) = (j.tenant, j.library, j.document)
         WHERE j.id = %s AND j.lease = %s AND j.deadline > clock_timestamp() AND j.kind = 'sync'
@@ -65,20 +66,28 @@ def process(conn: psycopg.Connection, lease: Lease, index: KeywordIndex) -> None
     try:
         with tenant_transaction(conn, lease):
             document = lock_document(conn, lease)
+            trace, actor = document.trace, document.actor
             if document.synced == document.revision:
-                complete(conn, lease, "covered")
-                return
-            chunks = published_chunks(conn, lease, document)
-            index.replace_document(
-                lease.tenant, document.library, document.id, document.published, document.revision,
-                document.readers, chunks,
-            )
-            conn.execute("UPDATE documents SET synced = revision WHERE id = %s", (document.id,))
-            complete(conn, lease, "indexed")
-        logger.info(
-            "Sync indexed job=%s tenant=%s document=%s revision=%s",
-            lease.job, lease.tenant, document.id, document.revision,
-        )
+                outcome = "covered"
+            else:
+                if document.revision != document.requested:
+                    cause = conn.execute("""
+                        SELECT COALESCE(trace, id), app FROM jobs
+                        WHERE document = %s AND revision = %s AND kind = 'sync'
+                    """, (document.id, document.revision)).fetchone()
+                    if cause is not None:
+                        trace, actor = cause
+                chunks = published_chunks(conn, lease, document)
+                index.replace_document(
+                    lease.tenant, document.library, document.id, document.published, document.revision,
+                    document.readers, chunks,
+                )
+                conn.execute("UPDATE documents SET synced = revision WHERE id = %s", (document.id,))
+                outcome = "indexed"
+            complete(conn, lease, outcome)
+        emit("document.sync", trace, outcome=outcome, actor_type="app" if actor else "service",
+             actor=actor or "sync", service="sync", tenant=lease.tenant, job=lease.job,
+             library=document.library, document=document.id, revision=document.revision)
         return
     except LeaseLost:
         return
@@ -94,7 +103,9 @@ def process(conn: psycopg.Connection, lease: Lease, index: KeywordIndex) -> None
     try:
         with tenant_transaction(conn, lease):
             state = fail_in_transaction(conn, lease, reason, retryable)
-        logger.warning("Sync %s job=%s tenant=%s error=%s", state, lease.job, lease.tenant, reason)
+        emit("document.sync", trace, outcome=state, actor_type="app" if actor else "service",
+             actor=actor or "sync", service="sync", tenant=lease.tenant, job=lease.job, library=document.library,
+             document=document.id, revision=document.revision, error=reason)
     except LeaseLost:
         pass
 

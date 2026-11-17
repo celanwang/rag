@@ -34,6 +34,8 @@ SQL = (
     ("SELECT EXISTS (SELECT 1 FROM pg_policy WHERE polrelid = 'rag.chunks'::regclass AND polname = 'api_read_chunks')",
      "04-retrieval.sql"),
     ("SELECT to_regprocedure('rag.retire_versions()') IS NOT NULL", "05-retention.sql"),
+    ("SELECT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = 'rag.jobs'::regclass AND attname = 'trace')",
+     "06-audit.sql"),
 )
 SECRETS = (
     "RAG_POSTGRES_PASSWORD", "RAG_API_PASSWORD", "RAG_ADMIN_PASSWORD", "RAG_WORKER_PASSWORD",
@@ -175,11 +177,11 @@ def available_port() -> int:
 def services(env: dict, port: int, log: Path | None = None):
     if not env.get("DASHSCOPE_API_KEY"):
         raise SystemExit("Set DASHSCOPE_API_KEY or pass --env-file .env to uv.")
-    stream = log.open("wb") if log else None
+    stream = log.open("ab") if log else None
     processes = []
     try:
         for args in (
-            ("uvicorn", "rag.api:app", "--host", "127.0.0.1", "--port", str(port)),
+            ("uvicorn", "rag.api:app", "--host", "127.0.0.1", "--port", str(port), "--no-access-log"),
             ("rag.worker",), ("rag.sync",),
         ):
             processes.append(subprocess.Popen(
@@ -239,7 +241,9 @@ def benchmark(repeat: int) -> None:
 def demo() -> None:
     with new_run("demo") as (env, folder, manifest), services(env, available_port(), folder / "services.log") as (url, _):
         def cli(*args: str) -> dict:
-            return json.loads(command(sys.executable, "-m", "rag.cli", *args, env=env, capture_output=True).stdout)
+            with (folder / "services.log").open("ab") as log:
+                return json.loads(command(sys.executable, "-m", "rag.cli", *args, env=env,
+                                          stdout=subprocess.PIPE, stderr=log).stdout)
 
         samples = ROOT / "docs/samples/ecommerce"
         manifest["tenants"] = {}
@@ -321,9 +325,12 @@ def main() -> None:
         except psycopg.Error:
             cleanup.exit(1, "Retention database operation failed. Run rag.dev up to apply schema changes first.\n")
     elif args.action == "serve":
+        RUNS.mkdir(parents=True, exist_ok=True, mode=0o700)
+        log = RUNS / "serve.log"
         try:
-            with services(runtime(), 8001) as (url, processes):
+            with services(runtime(), 8001, log) as (url, processes):
                 print(f"API documentation: {url}/docs", flush=True)
+                print(f"Service logs: {log}", flush=True)
                 while all(process.poll() is None for process in processes):
                     time.sleep(0.5)
                 raise SystemExit("A RAG service exited.")
