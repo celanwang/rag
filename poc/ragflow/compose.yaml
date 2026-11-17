@@ -1,0 +1,97 @@
+name: ragflow-poc
+services:
+  ragflow:
+    image: infiniflow/ragflow:v1.0.0@sha256:ed8dff41a7530ed8fb037fe7479a7c535429d42fa8d00aec28b54bcbc056934d
+    command: ["--enable-adminserver", "--init-superuser", "--disable-syncer"]
+    ports:
+      - "127.0.0.1:19380:9380"
+      - "127.0.0.1:19381:9381"
+    environment:
+      DB_TYPE: mysql
+      DOC_ENGINE: elasticsearch
+      MYSQL_PASSWORD: ragflow-poc-mysql
+      ELASTIC_PASSWORD: ragflow-poc-search
+      MINIO_USER: ragflow-poc
+      MINIO_PASSWORD: ragflow-poc-storage
+      REDIS_PASSWORD: ragflow-poc-cache
+      NATS_HOST: nats
+      ALLOW_ANY_HOST: "1"
+      ADMIN_DEFAULT_PASSWORD: ${RAGFLOW_ADMIN_PASSWORD:?Set RAGFLOW_ADMIN_PASSWORD for the local PoC}
+    volumes:
+      - ragflow-logs:/ragflow/logs
+    depends_on:
+      mysql:
+        condition: service_healthy
+      es01:
+        condition: service_healthy
+      minio:
+        condition: service_started
+      kvrocks:
+        condition: service_healthy
+      nats:
+        condition: service_started
+  mysql:
+    image: mysql:8.0@sha256:7dcddc01f13bab2f15cde676d44d01f61fc9f99fe7785e86196dfc07d358ae2b
+    environment:
+      MYSQL_ROOT_PASSWORD: ragflow-poc-mysql
+      MYSQL_ROOT_HOST: "%"
+      MYSQL_DATABASE: rag_flow
+    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci"]
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h127.0.0.1", "-uroot"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+  es01:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.19.16@sha256:ac2ab63eabaec668d1b00ceaeeea56fad5919068a3bde40c4ca8f16b3f414e8b
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "true"
+      xpack.security.http.ssl.enabled: "false"
+      xpack.security.transport.ssl.enabled: "false"
+      ELASTIC_PASSWORD: ragflow-poc-search
+      ES_JAVA_OPTS: "-Xms512m -Xmx512m"
+    volumes:
+      - elasticsearch-data:/usr/share/elasticsearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS -u elastic:ragflow-poc-search 'http://localhost:9200/_cluster/health?wait_for_status=yellow&timeout=2s' | grep -q '\"timed_out\":false'"]
+      interval: 3s
+      timeout: 4s
+      retries: 40
+  minio:
+    image: pgsty/silo:RELEASE.2026-08-06T00-00-00Z
+    command: ["server", "/data"]
+    environment:
+      MINIO_ROOT_USER: ragflow-poc
+      MINIO_ROOT_PASSWORD: ragflow-poc-storage
+    volumes:
+      - object-data:/data
+  kvrocks:
+    image: apache/kvrocks:2.16.0
+    user: "0:0"
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        printf '%s\n' 'bind 0.0.0.0' 'port 6379' 'dir /var/lib/kvrocks' 'requirepass ragflow-poc-cache' > /var/lib/kvrocks/kvrocks.conf
+        exec kvrocks -c /var/lib/kvrocks/kvrocks.conf --dir /var/lib/kvrocks
+    volumes:
+      - cache-data:/var/lib/kvrocks
+    healthcheck:
+      test: ["CMD-SHELL", "REDISCLI_AUTH=ragflow-poc-cache redis-cli -p 6379 ping | grep -qx PONG"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+  nats:
+    image: nats:2.14.2
+    command: ["-js", "-sd", "/data"]
+    volumes:
+      - queue-data:/data
+volumes:
+  ragflow-logs:
+  mysql-data:
+  elasticsearch-data:
+  object-data:
+  cache-data:
+  queue-data:

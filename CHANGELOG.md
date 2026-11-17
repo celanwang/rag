@@ -11,6 +11,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
 - Contributor guidance for commits on `main`, local verification, and changelog updates.
 - FastAPI retrieval PoC with Markdown and text ingestion, pgvector and Elasticsearch, RRF, optional BGE reranking, and citations.
 - A 30-question benchmark and executable checks for isolation, document ACLs, version changes, and stale index entries.
+- RAGFlow 1.0.0 baseline with the same source files, a local BGE embedding endpoint, and comparable evidence and authorization probes.
 
 ### Security
 
