@@ -24,12 +24,13 @@ services:
       retries: 30
   objects:
     image: pgsty/silo@sha256:29a498b24669cae1fed11c1a2fb2b3d73c68829a0a9c0b14e71b386671d38fac
-    command: ["server", "/data"]
+    command: ["server", "/data", "--console-address", ":9001"]
     environment:
       MINIO_ROOT_USER: ${RAG_S3_ACCESS_KEY:?Set RAG_S3_ACCESS_KEY}
       MINIO_ROOT_PASSWORD: ${RAG_S3_SECRET_KEY:?Set RAG_S3_SECRET_KEY}
     ports:
       - "127.0.0.1:${RAG_S3_PORT:-59001}:9000"
+      - "127.0.0.1:${RAG_S3_CONSOLE_PORT:-59002}:9001"
     volumes:
       - object-data:/data
     healthcheck:
