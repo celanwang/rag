@@ -9,8 +9,15 @@
 
 ## Env
 
-- RAG 业务服务 · [Compose 配置](env/rag/compose.yaml)、[PostgreSQL 初始化 SQL](env/rag/schema.sql)、[运行与验收](../rag/README.md)
+- RAG 业务服务 · [Compose 配置](env/rag/compose.yaml)、[权限 SQL](env/rag/schema.sql)、[入库 SQL](env/rag/ingestion.sql)、[运行与验收](../rag/README.md)
 - 自研 PoC · [Compose 配置](env/poc/compose.yaml)、[PostgreSQL 初始化 SQL](env/poc/schema.sql)
 - RAGFlow 基线 · [Compose 配置](env/ragflow/compose.yaml)
 
 启动和检查命令见 [PoC 运行手册](../poc/README.md)。
+
+## Samples
+
+电商入库样例使用虚构的青禾商城和岚桥市集。两个租户各有一份同名退货政策，便于验证租户隔离。
+
+- 青禾商城 · [退货规则](samples/ecommerce/alpha/returns.md)、[配送说明](samples/ecommerce/alpha/shipping.txt)
+- 岚桥市集 · [退货规则](samples/ecommerce/beta/returns.md)、[优惠券说明](samples/ecommerce/beta/promotion.txt)

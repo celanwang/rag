@@ -15,6 +15,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
 - Phase-one design, an eight-table schema proposal, and a consolidated PoC validation report.
 - RAG service with an independent database, tenant and application provisioning, API Key authentication, and knowledge base read and write grants.
 - Alibaba Cloud Bailian client for document and query embeddings and text reranking, with a local model check.
+- Markdown and plain-text upload to object storage, PostgreSQL ingestion jobs, and a Bailian embedding worker with retries and version publication.
+- E-commerce sample documents and integration checks for ingestion, publication, and tenant isolation.
 
 ### Changed
 
