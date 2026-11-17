@@ -23,6 +23,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
 - Persistent `rag-dev` workflow for browsing sample data and retaining integration and benchmark runs.
 - Tenant-scoped retention cleanup for expired PostgreSQL document versions, originals, and chunks with a dry run and preserved upload receipts.
 - Eight labelled retrieval failure cases and an isolated benchmark for candidate coverage and misleading top results.
+- Eleven follow-up retrieval cases covering question variants, policy date boundaries, and source precedence.
 
 ### Changed
 
@@ -31,6 +32,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
 - Store business document originals in PostgreSQL and run `rag-dev` with PostgreSQL and Elasticsearch.
 - Consolidate the RAG database bootstrap into one SQL baseline, upgrade retained databases by schema version, and group implementation and verification reports under `docs/other/`.
 - Give higher-ranked recall candidates more influence in RRF to preserve early evidence found by a single branch.
+- Validate both benchmark suites against one JSON schema and report which gold chunks were missed during recall or fell outside the prefinal cutoff.
 
 ### Removed
 

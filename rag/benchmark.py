@@ -8,9 +8,11 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from typing import Annotated, Literal
 from uuid import uuid4
 
 import httpx
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, TypeAdapter
 
 from poc.benchmark import aggregate, gold_ids, metrics
 
@@ -22,6 +24,50 @@ QUESTIONS = Path(__file__).resolve().parents[1] / "poc" / "questions.json"
 BAD_CASES = Path(__file__).with_name("benchmark_cases")
 MODES = tuple(BRANCHES)
 TUNING = {"knowledge_base_code": "demo", "top_k": 5, "candidates": 8, "rerank_limit": 12, "debug": True}
+CaseText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+EvidenceAnchors = Annotated[list[tuple[CaseText, CaseText]], Field(min_length=1)]
+
+
+class BenchmarkCase(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    id: CaseText
+    token: Literal["alpha-reader", "alpha-auditor", "beta-reader"]
+    kind: CaseText
+    question: Annotated[CaseText, StringConstraints(max_length=240)]
+    gold: EvidenceAnchors
+    avoid_top1: EvidenceAnchors | None = None
+    expected_behavior: CaseText | None = None
+    variant_of: CaseText | None = None
+
+
+CASE_LIST = TypeAdapter(Annotated[list[BenchmarkCase], Field(min_length=1)])
+
+
+def load_cases(raw: bytes, *, require_behavior: bool = False) -> list[dict]:
+    cases = CASE_LIST.validate_json(raw)
+    by_id = {case.id: case for case in cases}
+    if len(by_id) != len(cases):
+        raise ValueError("Benchmark case IDs must be unique")
+    for case in cases:
+        if require_behavior and case.expected_behavior is None:
+            raise ValueError(f"Missing expected behavior for {case.id}")
+        if case.variant_of is not None:
+            parent = by_id.get(case.variant_of)
+            if parent is None or parent.variant_of is not None:
+                raise ValueError(f"Variant {case.id} must reference a base case in the same suite")
+    return [case.model_dump(mode="json", exclude_none=True) for case in cases]
+
+
+def evidence_stages(gold: set[str], recall: dict[str, list[str]], prefinal: list[str], top_k: int) -> dict:
+    candidates = {chunk for ids in recall.values() for chunk in ids}
+    recalled_gold = gold & candidates
+    prefinal_gold = gold.intersection(prefinal[:top_k])
+    return {
+        "candidate_recall": len(recalled_gold) / len(gold),
+        "prefinal_recall_at_k": len(prefinal_gold) / len(gold),
+        "missing_from_candidates": sorted(gold - candidates),
+        "outside_prefinal_top_k": sorted(recalled_gold - prefinal_gold),
+    }
 
 
 def cli(*args: str) -> dict:
@@ -89,7 +135,7 @@ def seed(client: httpx.Client, paths: list[Path]) -> tuple[dict, dict, dict]:
 def run(client: httpx.Client, repeat: int, *, bad_cases: bool = False) -> dict:
     questions = BAD_CASES / "questions.json" if bad_cases else QUESTIONS
     raw = questions.read_bytes()
-    samples = json.loads(raw)
+    samples = load_cases(raw, require_behavior=bad_cases)
     paths = sorted(QUESTIONS.parent.glob("corpus/*/*"))
     if bad_cases:
         paths.extend(sorted(BAD_CASES.glob("corpus/*/*")))
@@ -98,9 +144,17 @@ def run(client: httpx.Client, repeat: int, *, bad_cases: bool = False) -> dict:
     avoid_top1 = gold_ids(corpus, [
         {**sample, "gold": sample["avoid_top1"]} for sample in samples if "avoid_top1" in sample
     ])
+    evidence_sources = {}
     for sample in samples:
-        for chunk in expected[sample["id"]] | avoid_top1.get(sample["id"], set()):
-            request(client, "GET", f"/v1/citations/{chunk}", apps[sample["token"]]["key"])
+        gold = expected[sample["id"]]
+        forbidden = avoid_top1.get(sample["id"], set())
+        if gold & forbidden:
+            raise ValueError(f"Gold and forbidden sources must be different chunks for {sample['id']}")
+        for chunk in sorted(gold | forbidden):
+            citation = request(client, "GET", f"/v1/citations/{chunk}", apps[sample["token"]]["key"])
+            evidence_sources[chunk] = {
+                field: citation[field] for field in ("filename", "heading", "line_start", "line_end")
+            }
 
     def search(sample: dict, mode: str) -> dict:
         result = request(client, "POST", "/v1/retrieve", apps[sample["token"]]["key"],
@@ -123,12 +177,15 @@ def run(client: httpx.Client, repeat: int, *, bad_cases: bool = False) -> dict:
             elapsed = (time.perf_counter() - started) * 1000
             ids = [hit["chunk_id"] for hit in result["results"]]
             evidence = expected[sample["id"]]
+            debug = result["debug"]
             row = {
                 "id": sample["id"], "kind": sample["kind"], "mode": mode, "trial": trial,
                 "http_ms": elapsed, "gold_ids": sorted(evidence), "metrics": metrics(ids, evidence),
-                **result["debug"], "ranked_ids": ids,
+                **debug, "ranked_ids": ids,
+                "evidence_stages": evidence_stages(evidence, debug["recall"], debug["prefinal"], TUNING["top_k"]),
             }
             if forbidden := avoid_top1.get(sample["id"]):
+                row["forbidden_top1_ids"] = sorted(forbidden)
                 row["forbidden_top1_hit"] = bool(forbidden.intersection(ids[:1]))
             rows.append(row)
     return {
@@ -140,6 +197,7 @@ def run(client: httpx.Client, repeat: int, *, bad_cases: bool = False) -> dict:
             "chunk_chars": CHUNK_CHARS, "chunk_overlap": CHUNK_OVERLAP, "status_poll_interval_ms": 50,
         },
         "samples": samples,
+        "evidence_sources": evidence_sources,
         "overall": {mode: aggregate([row for row in rows if row["mode"] == mode]) for mode in MODES},
         "requests": rows,
     }

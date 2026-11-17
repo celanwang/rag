@@ -78,5 +78,126 @@
       ["pickup-customer-service.md", "到店通知后 72 小时内取货"]
     ],
     "expected_behavior": "报告两个当前生效的同级制度在同一适用范围内冲突。列出 48 小时和 72 小时及各自出处，并提示向制度维护方确认。"
+  },
+  {
+    "id": "Q09",
+    "variant_of": "Q01",
+    "token": "alpha-reader",
+    "kind": "Query 歧义",
+    "question": "Northstar 只记下了报错编号 GW-410Z，应该怎么处理？",
+    "gold": [["support.md", "管理台重新签发"], ["support.md", "出站 443/TCP"]],
+    "expected_behavior": "把两条相近编号的证据作为澄清依据，要求核对完整编号或提供具体症状。确认前不按任一故障给出确定的处理步骤。"
+  },
+  {
+    "id": "Q10",
+    "variant_of": "Q03",
+    "token": "alpha-reader",
+    "kind": "Query 歧义",
+    "question": "青禾商城官网买的冷藏生鲜有质量问题，签收已经三天，还在申请售后的时限内吗？",
+    "gold": [["returns-current.md", "24 小时内申请售后"]],
+    "avoid_top1": [["returns-current.md", "15 个自然日内可申请退货"]],
+    "expected_behavior": "根据明确的商品类型和质量问题直接回答。三天已超过冷藏生鲜适用的 24 小时售后时限。"
+  },
+  {
+    "id": "Q11",
+    "variant_of": "Q04",
+    "token": "beta-reader",
+    "kind": "漏召回",
+    "question": "出境办公前去哪里登记紧急联系人？材料发给合作方要用哪个平台？外部供应商的临时协作账户最长开多久？",
+    "gold": [
+      ["access.md", "有效期上限为 24 小时"],
+      ["retention.md", "加密文件交换平台"],
+      ["travel.md", "紧急联系人登记到安全门户"]
+    ],
+    "expected_behavior": "按子问题的顺序回答安全门户、加密文件交换平台和临时账户最长 24 小时，并逐项引用。"
+  },
+  {
+    "id": "Q12",
+    "variant_of": "Q04",
+    "token": "beta-reader",
+    "kind": "漏召回",
+    "question": "我要在线交文件给外部合作方，应该从什么入口发出去？临时帮忙的供应商能登入多长时间？去国外工作前，要在哪儿报备紧急情况时的联络人？",
+    "gold": [
+      ["access.md", "有效期上限为 24 小时"],
+      ["retention.md", "加密文件交换平台"],
+      ["travel.md", "紧急联系人登记到安全门户"]
+    ],
+    "expected_behavior": "给出加密文件交换平台、临时账户最长 24 小时和安全门户三项证据。最后一项只回答报备入口，联系人由出差员工填写。"
+  },
+  {
+    "id": "Q13",
+    "variant_of": "Q06",
+    "token": "beta-reader",
+    "kind": "融合后丢失证据",
+    "question": "预发出了毛病复现不了，要把什么信息交给分析人员？网关留痕还能翻到多久前？",
+    "gold": [
+      ["retention.md", "在热存储保留 7 天，在归档桶保留 45 天"],
+      ["release.md", "记录请求 ID 与所属区域"]
+    ],
+    "expected_behavior": "给出请求 ID、所属区域和网关日志两种存储的保留期，同时引用两份证据。"
+  },
+  {
+    "id": "Q14",
+    "variant_of": "Q06",
+    "token": "beta-reader",
+    "kind": "融合后丢失证据",
+    "question": "网关接入流水在热存储和归档桶分别保留几天？预发环境的问题难以复现时，提交故障分析要记录哪两项？",
+    "gold": [
+      ["retention.md", "在热存储保留 7 天，在归档桶保留 45 天"],
+      ["release.md", "记录请求 ID 与所属区域"]
+    ],
+    "expected_behavior": "引用日志保留和预发故障分析的两份证据，给出热存储 7 天、归档桶 45 天以及请求 ID、所属区域。"
+  },
+  {
+    "id": "Q15",
+    "variant_of": "Q07",
+    "token": "alpha-reader",
+    "kind": "旧政策误用",
+    "question": "以 2026-08-31 当天生效的规则为准，青禾商城官网普通商品签收第 10 天还能申请退货吗？",
+    "gold": [["returns-archived.md", "签收后 7 个自然日内可申请退货"]],
+    "avoid_top1": [["returns-current.md", "15 个自然日内可申请退货"]],
+    "expected_behavior": "引用适用期截至 2026-08-31 的旧版。签收第 10 天已超出当时的 7 天期限。"
+  },
+  {
+    "id": "Q16",
+    "variant_of": "Q07",
+    "token": "alpha-reader",
+    "kind": "旧政策误用",
+    "question": "以 2026-09-01 当天生效的规则为准，青禾商城官网普通商品签收第 10 天还能申请退货吗？",
+    "gold": [["returns-current.md", "15 个自然日内可申请退货"]],
+    "avoid_top1": [["returns-archived.md", "签收后 7 个自然日内可申请退货"]],
+    "expected_behavior": "引用 2026-09-01 起适用的新版。签收第 10 天仍在 15 天期限内。"
+  },
+  {
+    "id": "Q17",
+    "variant_of": "Q07",
+    "token": "alpha-reader",
+    "kind": "旧政策误用",
+    "question": "以 2026-09-02 当天生效的规则为准，青禾商城官网普通商品签收第 10 天还能申请退货吗？",
+    "gold": [["returns-current.md", "15 个自然日内可申请退货"]],
+    "avoid_top1": [["returns-archived.md", "签收后 7 个自然日内可申请退货"]],
+    "expected_behavior": "按 2026 年 9 月版的 15 天期限回答，签收第 10 天仍可申请。"
+  },
+  {
+    "id": "Q18",
+    "variant_of": "Q08",
+    "token": "alpha-reader",
+    "kind": "来源冲突",
+    "question": "青禾商城官网的普通自提单收到到店通知后，门店说两天内取，客服说三天内取。2026-11-17 我应该按哪份制度？",
+    "gold": [
+      ["pickup-operations.md", "到店通知后 48 小时内取货"],
+      ["pickup-customer-service.md", "到店通知后 72 小时内取货"]
+    ],
+    "expected_behavior": "同时引用门店与客服的正式制度，说明同一适用范围内的 48 小时与 72 小时冲突，向制度维护方确认。"
+  },
+  {
+    "id": "Q19",
+    "variant_of": "Q07",
+    "token": "alpha-reader",
+    "kind": "来源冲突",
+    "question": "青禾商城官网普通商品的 2025 年版和 2026 年 9 月版退货政策一个写 7 天、一个写 15 天。2026-11-17 要引用哪一版？",
+    "gold": [["returns-current.md", "替代 2025 年版"]],
+    "avoid_top1": [["returns-archived.md", "签收后 7 个自然日内可申请退货"]],
+    "expected_behavior": "识别正式替代关系，引用现行 2026 年 9 月版的 15 天期限。7 天仅用于解释历史规则。"
   }
 ]
