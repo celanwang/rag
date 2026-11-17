@@ -2,7 +2,7 @@
 
 首期使用八张业务表。CLI 和 API 可按 `code` 查找租户或知识库，例如 `alpha` 和 `ops-docs`。租户短码全局唯一，知识库短码在租户内唯一。`name` 用于展示，表间关联使用 UUID `id`。
 
-独立环境依次初始化身份和授权表、入库表，以及索引同步角色和队列权限。 [权限 SQL](../env/rag/schema.sql) · [入库 SQL](../env/rag/ingestion.sql) · [索引同步 SQL](../env/rag/sync.sql)
+独立环境依次初始化身份和授权表、入库表、索引同步队列权限和检索权限。 [权限 SQL](../env/rag/schema.sql) · [入库 SQL](../env/rag/ingestion.sql) · [索引同步 SQL](../env/rag/sync.sql) · [检索权限 SQL](../env/rag/retrieval.sql)
 
 业务表位于 `rag` schema。初始化 SQL 在事务内设置 `search_path`，API、Worker 和 CLI 在连接时设置，建表和查询都可直接使用 `documents` 等表名。`SECURITY DEFINER` 函数使用独立的搜索路径，函数体显式引用业务表。
 
