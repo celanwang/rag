@@ -52,4 +52,4 @@ RAGFlow 的 56 个索引块包含全部 35 个金标。90 次原生混合请求�
 
 ## 复跑
 
-自研消融的原始记录在 `.poc/results.json`，跨系统对照和 18 个授权探测在 `.poc/ragflow-results.json`。记录包含题集与原件指纹、逐题排序、配置和请求延迟。 [自研复跑](../README.md#本地检索-poc) · [RAGFlow 复跑](../README.md#ragflow-原生混合检索基线)
+自研消融的原始记录在 `.poc/results.json`，跨系统对照和 18 个授权探测在 `.poc/ragflow-results.json`。记录包含题集与原件指纹、逐题排序、配置和请求延迟。 [自研复跑](../poc/README.md#local-retrieval-poc) · [RAGFlow 复跑](../poc/README.md#ragflow-baseline)

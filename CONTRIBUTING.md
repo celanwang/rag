@@ -16,7 +16,7 @@ docs(design): define asynchronous document ingestion
 
 ## Verification
 
-Run `uv lock --check` after dependency changes. For retrieval or storage changes, run the self-built PoC isolation checks and the relevant benchmark. For RAGFlow changes, run the baseline comparison. Record the verification commands and results with the change or its review. [Local verification](README.md)
+Run `uv lock --check` after dependency changes. For retrieval or storage changes, run the self-built PoC isolation checks and the relevant benchmark. For RAGFlow changes, run the baseline comparison. Record the verification commands and results with the change or its review. [Local verification](poc/README.md)
 
 Reference the design for changes that affect interfaces, authorization, or document lifecycle. [System design](docs/design.md)
 
