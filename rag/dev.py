@@ -243,7 +243,10 @@ def demo() -> None:
                 writer = cli("register-app", code, "Writer")
                 cli("grant", code, reader["id"], "shop", "read")
                 cli("grant", code, writer["id"], "shop", "write")
-                readers[group] = {"tenant": code, "key": reader["key"], "knowledge_base_code": "shop"}
+                readers[group] = {
+                    "tenant": code, "label": "青禾商城" if group == "alpha" else "岚桥市集",
+                    "key": reader["key"], "writer_key": writer["key"], "knowledge_base_code": "shop",
+                }
                 store_json(folder / "readers.json", readers)
                 files = {}
                 manifest["tenants"][code] = files
