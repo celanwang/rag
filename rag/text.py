@@ -49,6 +49,11 @@ class Chunk:
     def passage(self) -> str:
         return model_passage(self.heading, self.body)
 
+    def location_json(self) -> dict:
+        return {"line_start": self.line_start, "line_end": self.line_end,
+                "start_offset": self.start_offset, "end_offset": self.end_offset,
+                "section_start": self.section_start}
+
 
 def split_text(text: str, markdown: bool) -> list[Chunk]:
     chunks: list[Chunk] = []
