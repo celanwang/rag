@@ -13,7 +13,7 @@ A multi-tenant retrieval-augmented generation (RAG) project. The current prototy
 
 FastAPI serves the ingestion and retrieval API. PostgreSQL stores document versions, vectors, and access rules. Elasticsearch serves keyword search. Hybrid retrieval combines both result sets and verifies access before returning evidence.
 
-[Phase-one design](docs/design.md) · [Database schema](docs/schema.md)
+[Phase-one design](docs/plan/design.md) · [Database schema](docs/plan/schema.md)
 
 ## Tech Stack
 

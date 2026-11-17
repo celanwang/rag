@@ -4,8 +4,8 @@
 
 | 领域 | 选择 | 依据 |
 | --- | --- | --- |
-| 权限与检索服务 | 自研 API，PostgreSQL 保存授权 | RAGFlow 私有数据集通过跨租户探测，同租户 API Key 可绕过请求白名单访问审计文档。自研 PoC 的服务端 ACL 能过滤陈旧 ES 索引中的越权证据。 [授权验证](poc-results.md#隔离与故障验证) |
-| 向量和关键词 | pgvector 精确搜索、ES BM25、短语和编号匹配、RRF 融合、可选精排 | 30 道合成题上，自研 RRF 的 Recall@5 为 98.3%，加精排为 100%。p95 分别为 12.5 ms 和 126.4 ms。 [同题对照](poc-results.md#ragflow-同题对照) |
+| 权限与检索服务 | 自研 API，PostgreSQL 保存授权 | RAGFlow 私有数据集通过跨租户探测，同租户 API Key 可绕过请求白名单访问审计文档。自研 PoC 的服务端 ACL 能过滤陈旧 ES 索引中的越权证据。 [授权验证](../poc-results.md#隔离与故障验证) |
+| 向量和关键词 | pgvector 精确搜索、ES BM25、短语和编号匹配、RRF 融合、可选精排 | 30 道合成题上，自研 RRF 的 Recall@5 为 98.3%，加精排为 100%。p95 分别为 12.5 ms 和 126.4 ms。 [同题对照](../poc-results.md#ragflow-同题对照) |
 | 入库执行 | PostgreSQL 任务表、入库与 ES 同步 Worker | 待发布版本和入库任务同事务提交。发布新版本时，同事务创建 ES 同步任务。根据队列积压和数据库负载评估是否引入 Celery 与消息代理。 [首期设计](design.md) |
 | 解析 | 首批支持 Markdown/TXT，Docling 用于验证文本型 PDF/DOCX | 抽检解析后的阅读顺序和原文定位，并记录失败率。 [Docling 格式支持](https://docling-project.github.io/docling/usage/supported_formats/) |
 

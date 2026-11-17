@@ -1,6 +1,6 @@
 # 数据库设计
 
-首期使用八张业务表。CLI 和 API 可按 `code` 查找租户或知识库，例如 `alpha` 和 `ops-docs`。租户短码全局唯一，知识库短码在租户内唯一。`name` 用于展示，表间关联使用 UUID `id`。 [PoC 建表 SQL](../poc/schema.sql)
+首期使用八张业务表。CLI 和 API 可按 `code` 查找租户或知识库，例如 `alpha` 和 `ops-docs`。租户短码全局唯一，知识库短码在租户内唯一。`name` 用于展示，表间关联使用 UUID `id`。 [PoC 建表 SQL](../../poc/schema.sql)
 
 ```sql
 CREATE EXTENSION IF NOT EXISTS vector;
