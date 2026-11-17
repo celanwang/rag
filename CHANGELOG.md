@@ -30,6 +30,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
 - Store business document originals in PostgreSQL and run `rag-dev` with PostgreSQL and Elasticsearch.
 - Consolidate the RAG database bootstrap into one SQL baseline, upgrade retained databases by schema version, and group implementation and verification reports under `docs/other/`.
 
+### Removed
+
+- Retire the one-time PostgreSQL baseline and original-file migration scripts after upgrading `rag-dev`.
+
 ### Security
 
 - Tenant-scoped PostgreSQL policies and authorization checks before candidate text, citations, or retrieval results are returned.

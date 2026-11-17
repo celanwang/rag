@@ -15,7 +15,7 @@ uv run --locked --env-file .env python -m rag.dev serve
 
 Run `serve` in a separate terminal to keep the API and both workers running. Open [API documentation](http://127.0.0.1:8001/docs) to browse the endpoints. The demo creates two sample tenants in the main `rag` database and writes read-only keys to the run's local `readers.json`. Use a key from that file in the API docs and query its `shop` knowledge base.
 
-`up` reuses the PostgreSQL and Elasticsearch volumes. An empty database initializes from `schema.sql`. Existing `rag-dev` databases with the retrieval schema use the versioned migration and keep their data. The `rag` schema comment records the applied version. Local credentials are stored in `docs/env/rag/.env`. [Compose config](../docs/env/rag/compose.yaml) · [Database design](../docs/plan/schema.md)
+`up` reuses the PostgreSQL and Elasticsearch volumes. An empty database initializes from `schema.sql`. For an existing database, `up` checks the version recorded in the `rag` schema comment. Local credentials are stored in `docs/env/rag/.env`. [Compose config](../docs/env/rag/compose.yaml) · [Database design](../docs/plan/schema.md)
 
 ```sh
 uv run --locked python -m rag.dev status
@@ -34,17 +34,6 @@ curl -fsS http://127.0.0.1:59201/_cat/indices?v
 ```
 
 Default host ports are PostgreSQL `55433` and Elasticsearch `59201`. Compose `stop` pauses both containers and retains their data volumes.
-
-### Migrate originals from an earlier rag-dev
-
-Stop the API and workers and keep PostgreSQL and the legacy object service running during the transfer. The migration uses the existing local credentials and the bucket names recorded for retained runs. It checks each file against its SHA-256 before storing it. After the transfer succeeds, remove the legacy object container and start the current Compose environment. Docker retains the old object volume.
-
-```sh
-uv run --locked --with minio==7.2.18 python -m rag.migrate_originals
-docker stop rag-dev-objects-1
-docker rm rag-dev-objects-1
-uv run --locked python -m rag.dev up
-```
 
 ## Apply version retention
 

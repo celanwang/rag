@@ -8,7 +8,7 @@
 
 ## Env
 
-- `rag-dev` · [Compose 配置](env/rag/compose.yaml)、[初始化 SQL](env/rag/schema.sql)、[迁移 SQL](env/rag/migrations/001-baseline.sql)、[运行与验收](../rag/README.md#persistent-rag-dev)
+- `rag-dev` · [Compose 配置](env/rag/compose.yaml)、[初始化 SQL](env/rag/schema.sql)、[运行与验收](../rag/README.md#persistent-rag-dev)
 - 自研 PoC · [Compose 配置](env/poc/compose.yaml)、[PostgreSQL 初始化 SQL](env/poc/schema.sql)
 - RAGFlow 基线 · [Compose 配置](env/ragflow/compose.yaml)
 

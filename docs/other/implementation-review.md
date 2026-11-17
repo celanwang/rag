@@ -35,7 +35,7 @@ flowchart LR
 | 关键词 | ES 共享索引按租户、库和应用 ACL 过滤，使用 CJK 分词、正文及标题等字段的 BM25、短语匹配和结构化编号加权。查询返回切片 ID，索引中的正文用于搜索匹配。 | [索引映射](../../rag/keyword.py#L68) · [查询](../../rag/keyword.py#L147) |
 | 融合及精排 | RRF 使用 `k=60`，同分按切片 UUID 排序。`rerank` 模式调用 `qwen3-rerank` 对融合后的 shortlist 精排。默认 `rrf`，每路候选默认 50，精排默认 30，默认返回 5 条。 | [检索编排](../../rag/retrieval.py#L29) · [精排模型](../../rag/models.py#L83) |
 | 任务调度 | `jobs` 同时承担入库任务与 ES 变更队列。两个受限的领取入口使用 `FOR UPDATE SKIP LOCKED`，租约 120 秒，最多四次尝试。过期重新领取，发布及任务结束时校验令牌和有效期。 | [调度 SQL](../env/rag/schema.sql#L191) · [Worker 调度](../../rag/jobs.py) |
-| 开发与验证 | `rag.dev` 管理持久化 Compose、数据库初始化和版本迁移及服务子进程。演示写入主库，测试与基准在同一实例内从同一份 SQL 初始化独立 DB，各用独立 ES 索引并保留运行清单。 | [开发入口](../../rag/dev.py) · [运行手册](../../rag/README.md) |
+| 开发与验证 | `rag.dev` 管理持久化 Compose、数据库初始化及服务子进程。演示写入主库，测试与基准在同一实例内从同一份 SQL 初始化独立 DB，各用独立 ES 索引并保留运行清单。 | [开发入口](../../rag/dev.py) · [运行手册](../../rag/README.md) |
 
 ## 数据模型和设计约束
 
@@ -75,8 +75,6 @@ sequenceDiagram
 2. **入库与发布。** `queued` 或到期的 `retry` 任务可领取，过期的 `running` 任务可重新领取。入库过程在向量批次间续租。发布事务锁住文档并检查租约、`target` 和 `deleted`。只有当前目标版本能插入切片并切换 `published`，同时更新 `revision`、创建 ES 同步任务并完成入库任务。新版解析或模型失败时，旧 `published` 仍可查询。 [发布事务](../../rag/worker.py#L66) · [任务重试](../../rag/jobs.py#L70)
 3. **关键词可见。** 同步任务以文档的当前 `revision` 为准，旧任务可覆盖更新修订。ES 用 `chunk_id` 和外部版本号写入，刷新后按文档和修订条件清理旧条目。全部成功才写 `synced=revision`。PG 发布后向量路立即可读，关键词路可能暂时缺少新版证据。PG 会拒绝 ES 返回的旧版切片。 [同步事务](../../rag/sync.py#L64) · [索引写入](../../rag/keyword.py#L91)
 4. **撤权和删除。** `PATCH readers` 或 `DELETE` 需要库写权限，文档行更新与新 `sync` 任务一起提交。PG 提交后收窄读取范围，ES 随后更新 ACL 或清理条目。删除时 PG 记录 `deleted`，历史版本、原件字节和向量的物理清理由留存策略决定。任务状态 API 按文档当前修订呈现 `keyword_status`，查询旧入库任务时可以看到文档后来版本的关键词状态。 [文档变更](../../rag/documents.py#L20) · [任务状态](../../rag/ingest.py#L159)
-
-旧环境的原件迁移是单独的管理路径。脚本持有 `versions` 表的排他锁，从旧桶逐份读取并校验原件，在同一库事务中回填 `content`、加约束并移除 `path`。开发运行手册要求迁移期间停止 API 和 Worker。当前本地 `rag.versions` 经只读查询确认使用非空 `bytea content`。这类迁移扩大到大语料时，需要估算锁持有时间、事务写入量和失败后的重跑时间。 [迁移脚本](../../rag/migrate_originals.py#L25) · [迁移运行手册](../../rag/README.md#migrate-originals-from-an-earlier-rag-dev)
 
 ## 查询与引用数据流
 

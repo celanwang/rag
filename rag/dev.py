@@ -106,13 +106,11 @@ def up() -> None:
     command(*COMPOSE, "up", "-d", "--wait", "--wait-timeout", "90", env=env)
     version = psql(env, "rag", "-Atc", """
         SELECT CASE WHEN ns IS NULL THEN 'empty'
-                    ELSE COALESCE(obj_description(ns, 'pg_namespace'), 'legacy') END
+                    ELSE COALESCE(obj_description(ns, 'pg_namespace'), 'unversioned') END
         FROM to_regnamespace('rag') AS ns
     """, capture_output=True, text=True).stdout.strip()
     if version == "empty":
         psql(env, "rag", "-qf", SCHEMA_FILE)
-    elif version == "legacy":
-        psql(env, "rag", "-qf", "/rag-migrations/001-baseline.sql")
     elif version != SCHEMA_VERSION:
         raise SystemExit(f"Unsupported RAG database schema version: {version}")
     command(*COMPOSE, "ps", env=env)
