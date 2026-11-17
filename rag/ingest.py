@@ -13,6 +13,7 @@ from .audit import emit
 from .auth import Identity, app_session, require_library
 from .format_parser import DOCX, PDF, PROFILES, REPORT, ParseFailure, ParseReport, matches_signature
 from .parse import version_config
+from .policy import Policy, PolicyAnchor, anchor_digest
 from .text import InvalidText, decode_text
 
 MIMES = {".md": "text/markdown", ".txt": "text/plain", ".docx": DOCX, ".pdf": PDF}
@@ -63,9 +64,13 @@ def upload_mime(filename: str) -> str:
     return mime
 
 
-def upload_fingerprint(filename: str, mime: str, document: UUID | None, checksum: bytes) -> bytes:
-    metadata = json.dumps([filename, mime, str(document) if document else None], ensure_ascii=False).encode()
-    return hashlib.sha256(checksum + metadata).digest()
+def upload_fingerprint(
+    filename: str, mime: str, document: UUID | None, checksum: bytes, policy: Policy | None,
+) -> bytes:
+    metadata = [filename, mime, str(document) if document else None]
+    if policy is not None:
+        metadata.append(policy.model_dump(mode="json"))
+    return hashlib.sha256(checksum + json.dumps(metadata, ensure_ascii=False).encode()).digest()
 
 
 def existing_submission(
@@ -98,8 +103,12 @@ def lock_document(conn: psycopg.Connection, library: UUID, document: UUID) -> No
 def record_submission(
     conn: psycopg.Connection, identity: Identity, library: UUID, key: str, fingerprint: bytes,
     document: UUID | None, version: UUID, filename: str, mime: str, content: bytes, checksum: bytes, trace: UUID,
+    policy: Policy | None,
 ) -> Submission:
     tenant = identity.tenant
+    config = version_config(mime).copy()
+    if policy is not None:
+        config["policy"] = policy.model_dump(mode="json")
     if document is None:
         document = uuid4()
         conn.execute(
@@ -113,13 +122,27 @@ def record_submission(
             "SELECT COALESCE(MAX(number), 0) + 1 FROM versions WHERE document = %s AND library = %s",
             (document, library),
         ).fetchone()[0]
+        if mime in PROFILES and policy is None:
+            # Pin metadata from the version that is published when the replacement is accepted.
+            rows = conn.execute("""
+                SELECT c.body, c.location -> 'policy'
+                FROM documents d JOIN chunks c ON (c.tenant, c.library, c.document, c.version) =
+                                                  (d.tenant, d.library, d.id, d.published)
+                WHERE d.id = %s AND d.library = %s AND c.location ->> 'policy' IS NOT NULL
+                ORDER BY c.ordinal
+            """, (document, library)).fetchall()
+            if rows:
+                config["policy_anchors"] = [
+                    PolicyAnchor(digest=anchor_digest(body), policy=Policy.model_validate(data)).model_dump(mode="json")
+                    for body, data in rows
+                ]
 
     conn.execute(
         """
         INSERT INTO versions (id, tenant, library, document, number, filename, mime, content, checksum, config)
         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """,
-        (version, tenant, library, document, number, filename, mime, content, checksum, Jsonb(version_config(mime))),
+        (version, tenant, library, document, number, filename, mime, content, checksum, Jsonb(config)),
     )
     conn.execute("UPDATE documents SET target = %s WHERE id = %s", (version, document))
     job = conn.execute(
@@ -134,15 +157,17 @@ def record_submission(
 
 def submit(
     pool: ConnectionPool, api_key: str, code: str, request_key: str,
-    filename: str, body: bytes, document: UUID | None, trace: UUID,
+    filename: str, body: bytes, document: UUID | None, trace: UUID, policy: Policy | None = None,
 ) -> Submission:
     mime = upload_mime(filename)
     if not matches_signature(mime, body):
         raise ParseFailure("format_mismatch")
     if mime not in PROFILES:
+        if policy is not None:
+            raise InvalidText("X-RAG-Policy is supported for DOCX and PDF uploads")
         decode_text(body)
     checksum = hashlib.sha256(body).digest()
-    fingerprint = upload_fingerprint(filename, mime, document, checksum)
+    fingerprint = upload_fingerprint(filename, mime, document, checksum, policy)
 
     with app_session(pool, api_key) as (conn, identity):
         library = require_library(conn, identity, code, "write")
@@ -153,6 +178,7 @@ def submit(
             return previous
         accepted = previous or record_submission(
             conn, identity, library.id, request_key, fingerprint, document, uuid4(), filename, mime, body, checksum, trace,
+            policy,
         )
     emit("document.upload", trace, outcome="replayed" if previous else "accepted",
          actor_type="app", actor=identity.app, tenant=identity.tenant, library=library.id,

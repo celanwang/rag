@@ -21,7 +21,8 @@ from test_authorization import cli
 
 class RrfTest(unittest.TestCase):
     def test_active_supersession_and_same_authority_conflict(self):
-        common = {"rule": "returns", "scope": "standard", "scope_label": "普通商品", "authority": 1}
+        common = {"rule": "returns", "scope": "standard", "scope_label": "普通商品", "authority": 1,
+                  "topic_labels": ["退货"]}
         old, new, conflict = (UUID(int=i) for i in (1, 2, 3))
         evidence = {
             chunk: Evidence(chunk, chunk, chunk, "policy.md", "普通商品", "Policy", 1, 1, common | policy)

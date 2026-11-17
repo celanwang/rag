@@ -68,6 +68,7 @@ const reasons: Record<string, string> = {
   content_limit: "文件超出解析限制。",
   content_no_text: "文件没有可入库的文本。",
   pdf_scanned: "PDF 仅含扫描或图片页，当前不执行 OCR。",
+  policy_confirmation_required: "无法从新版确认原政策条款，请通过上传 API 提交新版政策元数据。",
   parser_failed: "解析器未能处理该文件。",
   docx_skipped_content: "已跳过不支持的 DOCX 内容。",
   docx_skipped_secondary_parts: "已跳过页眉、页脚或附注等次要内容。",
@@ -79,8 +80,10 @@ function jobReason(reason: string | null) {
 }
 
 function ParseDetails({ report }: { report: ParseReport }) {
+  const mixedPages = report.mixed_image_pages ?? [];
   const details = [
     report.scan_pages.length > 0 && `图片页：${report.scan_pages.join("、")}`,
+    mixedPages.length > 0 && `第 ${mixedPages.join("、")} 页已提取文字，图片内容未提取`,
     report.no_text_pages.length > 0 && `其他无可提取文字的页：${report.no_text_pages.join("、")}`,
     report.skipped_tables.length > 0 && `跳过复杂表格：${report.skipped_tables.join("、")}`,
     ...report.warnings.filter((code) => Object.hasOwn(reasons, code)).map(jobReason),

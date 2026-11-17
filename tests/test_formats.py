@@ -19,14 +19,16 @@ def sample(filename):
     return (FORMATS / filename).read_bytes()
 
 
-def pdf_variant(*, scanned=False, encrypted=False, pages=0):
+def pdf_variant(*, scanned=False, encrypted=False, pages=0, with_image=False):
     writer = PdfWriter()
     if pages:
         for _ in range(pages):
             writer.add_blank_page(width=72, height=72)
     else:
         source = PdfReader(BytesIO(sample("mixed.pdf")))
-        writer.add_page(source.pages[0 if scanned else 1])
+        page = writer.add_page(source.pages[0 if scanned or with_image else 1])
+        if with_image:
+            page.merge_page(source.pages[1])
     if encrypted:
         writer.encrypt("secret", algorithm="RC4-128")
     stream = BytesIO()

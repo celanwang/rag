@@ -13,7 +13,7 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse, Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from psycopg_pool import ConnectionPool
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, Json
 
 from .audit import emit
 from .auth import InvalidKey, Library, LibraryForbidden, LibraryNotFound, app_session, require_library
@@ -27,6 +27,7 @@ from .generation import AnswerModel
 from .ingest import DocumentNotFound, JobNotFound, JobStatus, RequestConflict, Submission, job_status, submit, upload_mime
 from .keyword import KeywordIndex
 from .models import BailianModels
+from .policy import Policy
 from .retrieval import RetrievalUnavailable, Retriever, Search
 from .text import MAX_UPLOAD_BYTES, InvalidText
 
@@ -181,6 +182,7 @@ async def upload_document(
     filename: Annotated[str, Query(min_length=1, max_length=255)],
     idempotency_key: Annotated[str, Header(min_length=1, max_length=128, pattern=r"^[!-~]+$")],
     document_id: UUID | None = None,
+    policy: Annotated[Json[Policy] | None, Header(alias="X-RAG-Policy")] = None,
 ) -> Submission:
     mime = request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
     expected = upload_mime(filename)
@@ -194,7 +196,7 @@ async def upload_document(
         body.extend(chunk)
     return await run_in_threadpool(
         submit, request.app.state.pool, key, code, idempotency_key, filename, bytes(body), document_id,
-        request.state.trace_id,
+        request.state.trace_id, policy,
     )
 
 

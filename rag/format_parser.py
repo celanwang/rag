@@ -72,6 +72,7 @@ class ParseReport:
     warnings: list[str] = field(default_factory=list)
     page_count: int | None = None
     scan_pages: list[int] = field(default_factory=list)
+    mixed_image_pages: list[int] = field(default_factory=list)
     no_text_pages: list[int] = field(default_factory=list)
     skipped_tables: list[int] = field(default_factory=list)
 
@@ -357,9 +358,13 @@ def parse_pdf(body: bytes) -> Parsed:
                 text = page.extract_text(visitor_operand_before=visit).strip()
                 if warnings.limited:
                     raise ParseFailure("content_limit", result.report)
+                has_image = inline_image or pdf_has_image(page.get("/Resources", DictionaryObject()), set())
                 if text:
                     result.add(text, PdfLocation(page_no), page_no)
-                elif inline_image or pdf_has_image(page.get("/Resources", DictionaryObject()), set()):
+                    if has_image:
+                        result.report.mixed_image_pages.append(page_no)
+                        result.report.warn("pdf_mixed_page_images_not_extracted")
+                elif has_image:
                     result.report.scan_pages.append(page_no)
                     result.report.warn("pdf_scan_pages_skipped")
                 else:

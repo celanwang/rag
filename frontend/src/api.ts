@@ -72,6 +72,7 @@ export interface ParseReport {
   warnings: string[];
   page_count: number | null;
   scan_pages: number[];
+  mixed_image_pages?: number[];
   no_text_pages: number[];
   skipped_tables: number[];
 }

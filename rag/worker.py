@@ -18,7 +18,7 @@ from .jobs import (
 )
 from .models import EMBEDDING_BATCH_SIZE, BailianModels, ModelError
 from .parse import IndexChunk, prepare_binary, version_config
-from .policy import Policy, read_metadata, section_policies
+from .policy import POLICY_ANCHORS, Policy, match_policy_anchors, read_metadata, section_policies
 from .text import MAX_UPLOAD_BYTES, InvalidText, decode_text, split_text
 
 
@@ -69,7 +69,7 @@ def advance(conn: psycopg.Connection, lease: Lease, stage: str, report: ParseRep
 
 def publish(
     conn: psycopg.Connection, lease: Lease, source: Source,
-    chunks: list[IndexChunk], vectors: list[list[float]], policies: dict[str, Policy] | None = None,
+    chunks: list[IndexChunk], vectors: list[list[float]], policies: dict[int, Policy],
 ) -> bool:
     with tenant_transaction(conn, lease):
         document = conn.execute(
@@ -92,8 +92,8 @@ def publish(
                         uuid5(source.version, str(ordinal)), lease.tenant, source.library, source.document,
                         source.version, ordinal, chunk.heading, chunk.body,
                         Jsonb({**chunk.location_json(),
-                               **({"policy": policies[chunk.heading].model_dump(mode="json")}
-                                  if policies and chunk.heading in policies else {})}),
+                               **({"policy": policies[ordinal].model_dump(mode="json")}
+                                  if ordinal in policies else {})}),
                         json.dumps(vector),
                     )
                     for ordinal, (chunk, vector) in enumerate(zip(chunks, vectors, strict=True))
@@ -118,7 +118,10 @@ def process(conn: psycopg.Connection, lease: Lease, models: BailianModels) -> No
     failed_report = None
     try:
         source = read_source(conn, lease)
-        if source.config != version_config(source.mime):
+        parser_config = source.config.copy()
+        explicit_policy = parser_config.pop("policy", None)
+        policy_anchors = parser_config.pop("policy_anchors", None)
+        if parser_config != version_config(source.mime):
             raise InvalidText("Unsupported version configuration")
         original = source.content
         if len(original) > MAX_UPLOAD_BYTES or hashlib.sha256(original).digest() != source.checksum:
@@ -126,7 +129,16 @@ def process(conn: psycopg.Connection, lease: Lease, models: BailianModels) -> No
         policies = {}
         if source.mime in PROFILES:
             advance(conn, lease, "parse")
-            chunks, report = prepare_binary(source.mime, original, source.config)
+            chunks, report = prepare_binary(source.mime, original, parser_config)
+            if explicit_policy is not None:
+                policy = Policy.model_validate(explicit_policy)
+                policies = dict.fromkeys(range(len(chunks)), policy)
+            elif policy_anchors is not None:
+                anchors = POLICY_ANCHORS.validate_python(policy_anchors)
+                matched = match_policy_anchors([chunk.body for chunk in chunks], anchors)
+                if matched is None:
+                    raise ParseFailure("policy_confirmation_required", report)
+                policies = matched
             advance(conn, lease, "embed", report)
         else:
             markdown = source.mime == "text/markdown"
@@ -137,7 +149,8 @@ def process(conn: psycopg.Connection, lease: Lease, models: BailianModels) -> No
             if not chunks:
                 raise InvalidText("Document contains no indexable text")
             try:
-                policies = section_policies({chunk.heading for chunk in chunks}, read_metadata(text, markdown))
+                by_heading = section_policies({chunk.heading for chunk in chunks}, read_metadata(text, markdown))
+                policies = {i: by_heading[chunk.heading] for i, chunk in enumerate(chunks) if chunk.heading in by_heading}
             except ValueError as error:
                 raise InvalidText("Invalid policy metadata") from error
 

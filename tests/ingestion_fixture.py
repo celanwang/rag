@@ -69,7 +69,7 @@ class IngestionFixture:
             ([self.alpha_id, self.beta_id],),
         )
 
-    def upload(self, *, request="returns-1", file="alpha/returns.md", body=None, document=None, key=None):
+    def upload(self, *, request="returns-1", file="alpha/returns.md", body=None, document=None, key=None, policy=None):
         source = SAMPLES / file
         params = {"filename": source.name}
         if document is not None:
@@ -80,6 +80,7 @@ class IngestionFixture:
                 "Authorization": f"Bearer {key or self.writer['key']}",
                 "Idempotency-Key": request,
                 "Content-Type": "application/octet-stream",
+                **({"X-RAG-Policy": json.dumps(policy)} if policy is not None else {}),
             },
             content=source.read_bytes() if body is None else body,
         )

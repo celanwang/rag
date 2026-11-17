@@ -117,6 +117,8 @@ rag_job_id="$(printf '%s' "$rag_submission" | uv run --locked python -c 'import 
 
 The API returns `202` with `job_id`, `document_id`, and `version_id`. Repeating the same upload with the same key returns those IDs. A different upload with the same key returns `409`. To update an existing document, pass its `document_id` as another query parameter and use a new key.
 
+When replacing a published policy with DOCX or PDF, the worker carries forward the published metadata for passages it can match uniquely in the replacement after normalizing whitespace. If a passage is missing or ambiguous, the job ends with `policy_confirmation_required` and keeps the previous publication. For a new or changed single-policy DOCX/PDF, supply `X-RAG-Policy` as a JSON object with the same fields as one [Markdown policy annotation](benchmark_cases/corpus/alpha/returns-current.md). Use ASCII JSON with `\u` escapes for non-ASCII characters. The metadata applies to the uploaded version and is included in idempotency checks.
+
 Run the worker with the Bailian key in the repository root `.env`.
 
 ```sh
@@ -125,7 +127,7 @@ export RAG_WORKER_DATABASE_URL="postgresql://rag_worker:$RAG_WORKER_PASSWORD@127
 uv run --locked --env-file .env python -m rag.worker
 ```
 
-Check the job from the upload terminal. After publication it has `state=done` and `stage=published`. A temporary model error schedules a retry, up to four total attempts. An expired lease makes the job claimable again. For DOCX and PDF, the job's `parse_report` describes complete, partial, or failed extraction, including skipped pages or tables where applicable. Partial extraction with usable text can publish; failed extraction leaves the previous version published.
+Check the job from the upload terminal. After publication it has `state=done` and `stage=published`. A temporary model error schedules a retry, up to four total attempts. An expired lease makes the job claimable again. For DOCX and PDF, the job's `parse_report` describes complete, partial, or failed extraction, including skipped pages or tables where applicable. A PDF page with extractable text and detected images appears in `mixed_image_pages`. Its text is indexed and its image content remains unextracted. Partial extraction with usable text can publish; failed extraction leaves the previous version published.
 
 ```sh
 curl -fsS -H "Authorization: Bearer $rag_app_key" "http://127.0.0.1:8001/v1/ingestion-jobs/$rag_job_id"
@@ -177,7 +179,7 @@ For the first activation, create the alias before starting the API and Worker wi
 
 ## Retrieve evidence and download a source
 
-Set `expand_neighbors: true` to request bounded supplemental evidence from the same document version and section. New uploads record section positions. Reingest an older version to enable expansion for it. Set `as_of` to an ISO calendar date to select applicable policy evidence, and `interpret: true` to request identifier and scope clarification hints. The API returns the candidates for a policy conflict and leaves the original query intact. Policy authors can annotate Markdown sections with a first-line `<!-- rag-policy {…} -->` object keyed by the full heading path. [Policy fixture](benchmark_cases/corpus/alpha/returns-current.md)
+Set `expand_neighbors: true` to request bounded supplemental evidence from the same document version and section. New uploads record section positions. Reingest an older version to enable expansion for it. Set `as_of` to an ISO calendar date to select applicable policy evidence, and `interpret: true` to request identifier and scope clarification hints. Policy conflict and scope hints require a `topic_labels` match for the rule in the original question. Policy authors can annotate Markdown sections with a first-line `<!-- rag-policy {…} -->` object keyed by the full heading path. [Policy fixture](benchmark_cases/corpus/alpha/returns-current.md)
 
 After the sample is synchronized, grant read access and query the knowledge base. The API accepts `vector`, `keyword`, `rrf`, and `rerank` as `mode`. API and sync worker must use the same `RAG_ES_URL` and `RAG_ES_INDEX`.
 

@@ -66,8 +66,7 @@ def order_policies(ids: list[UUID], evidence: dict[UUID, Evidence], search: Sear
     if search.as_of is None and not search.interpret:
         return ids, []
     policies = {chunk: policy for chunk in ids if (policy := evidence[chunk].policy()) is not None}
-    topics = {policy.rule for policy in policies.values()
-              if any(label and label in search.question for label in policy.topic_labels)}
+    topics = {policy.rule for policy in policies.values() if policy.matches_topic(search.question)}
     matching = {policy.rule for policy in policies.values() if policy.scope_label in search.question}
     eligible = {
         chunk: policy for chunk, policy in policies.items()
@@ -80,7 +79,7 @@ def order_policies(ids: list[UUID], evidence: dict[UUID, Evidence], search: Sear
         groups[policy.rule, policy.scope].append((chunk, policy))
     selected = set()
     conflict = set()
-    for group in groups.values():
+    for (rule, _), group in groups.items():
         present = {policy.id: policy for _, policy in group}
         superseded = {
             target for _, policy in group for target in policy.supersedes
@@ -93,7 +92,7 @@ def order_policies(ids: list[UUID], evidence: dict[UUID, Evidence], search: Sear
         authority = max(policy.authority for _, policy in remaining)
         winners = [(chunk, policy) for chunk, policy in remaining if policy.authority == authority]
         selected.update(chunk for chunk, _ in winners)
-        if len({policy.value for _, policy in winners}) > 1:
+        if rule in topics and len({policy.value for _, policy in winners}) > 1:
             by_policy = {}
             for chunk, policy in winners:
                 by_policy.setdefault(policy.id, chunk)
