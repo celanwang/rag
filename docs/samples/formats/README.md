@@ -9,3 +9,5 @@ uv run --no-project --with reportlab==4.4.9 python docs/samples/formats/generate
 ```
 
 旧 Word 样本用 macOS 的 `textutil -convert doc -output docs/samples/formats/legacy.doc docs/samples/formats/returns.md` 生成。加密样本用 `msoffcrypto-tool==5.4.2` 的 `OfficeFile(...).encrypt("synthetic-test-password", output)` 生成，盐值随机。AES PDF 用带 crypto extra 的 pypdf 7.1.0 复制 `returns.pdf` 的第 2 页并以相同测试密码加密。上述样本已纳入仓库，可直接运行测试，无需生成工具。测试还会动态生成扫描、加密、空白及超页数 PDF，并构造损坏及超限输入。
+
+`policy/` 保存跨格式评测的售后政策和两份换班制度。`policy/mixed-policy.pdf` 来自 `mixed.pdf` 前两页的合成，第 1 页同时含图片和可提取退货条款。评测也复用 `returns.docx` 和 `returns.pdf`，以记录的 SHA-256 校验文件字节。 [评测入口](../../../rag/README.md#evaluate-a-policy-across-document-formats)

@@ -1,0 +1,109 @@
+{
+  "questions": {
+    "returns": "鸢尾门店退货须在签收之后几天内申请？",
+    "shift": "鸢尾门店值班换班要提前多久报备？"
+  },
+  "sources": {
+    "markdown": {
+      "path": "docs/samples/formats/policy/returns.md",
+      "sha256": "19f2329365e090601ede525bf3ed112131543c7f5b871c1080282c6d67a3a9cf",
+      "location": {
+        "kind": "lines",
+        "line_start": 4,
+        "line_end": 4
+      },
+      "quote": "鸢尾门店退货须在签收后十四天内申请。",
+      "parse_report": null
+    },
+    "docx": {
+      "path": "docs/samples/formats/returns.docx",
+      "sha256": "4620b8af486990e0d2c65f8ca0f5f74e62411ac25ab1a8b7a241d3d9bd167eb7",
+      "location": {
+        "kind": "docx_paragraph",
+        "section": [
+          "门店制度 / Store rules",
+          "退货条款 / Returns"
+        ],
+        "paragraph": 3
+      },
+      "quote": "鸢尾门店退货须在签收后十四天内申请。",
+      "parse_report": {
+        "status": "complete"
+      }
+    },
+    "mixed-pdf": {
+      "path": "docs/samples/formats/policy/mixed-policy.pdf",
+      "sha256": "f9179b8f748f8225e4b8163d8f54043879a54b064866a991fa66fb0821a675b8",
+      "location": {
+        "kind": "pdf_page",
+        "page": 1
+      },
+      "quote": "鸢尾门店退货须在签收后十四天内申请。",
+      "parse_report": {
+        "status": "partial",
+        "page_count": 1,
+        "mixed_image_pages": [
+          1
+        ],
+        "scan_pages": [],
+        "warnings": [
+          "pdf_mixed_page_images_not_extracted"
+        ]
+      },
+      "omitted_text": "replacement terms are pixels"
+    },
+    "plain-pdf": {
+      "path": "docs/samples/formats/returns.pdf",
+      "sha256": "4a725079a2373653c8315f16e11a37d8ff409569b3100a2d1f80fe7df8b0bf1c",
+      "location": {
+        "kind": "pdf_page",
+        "page": 2
+      },
+      "quote": "鸢尾门店退货须在签收后十四天内申请。",
+      "parse_report": {
+        "status": "complete",
+        "page_count": 2
+      }
+    },
+    "shift-service": {
+      "path": "docs/samples/formats/policy/shift-service.md",
+      "sha256": "ce1f01ce32425d79bf864eddb6eda94f3c51b062abaddfc71fe6ea41a8726947",
+      "location": {
+        "kind": "lines",
+        "line_start": 4,
+        "line_end": 4
+      },
+      "quote": "值班换班须提前24小时报备。",
+      "parse_report": null
+    },
+    "shift-ops": {
+      "path": "docs/samples/formats/policy/shift-ops.md",
+      "sha256": "69c56389922831ba45797c6f8d56c23ff8b3102229b200b580ecbe5421f1d189",
+      "location": {
+        "kind": "lines",
+        "line_start": 4,
+        "line_end": 4
+      },
+      "quote": "值班换班须提前48小时报备。",
+      "parse_report": null
+    }
+  },
+  "cases": [
+    {"id": "MD01", "phase": "markdown", "question": "returns", "as_of": "2026-08-31", "status": "insufficient", "excluded": ["markdown"], "reason": "policy_not_available_on_date"},
+    {"id": "MD02", "phase": "markdown", "question": "returns", "as_of": "2026-09-01", "status": "answered", "gold": ["markdown"], "fact_any": ["十四天", "14 days"]},
+    {"id": "MD03", "phase": "markdown", "question": "returns", "as_of": "2026-09-30", "status": "answered", "gold": ["markdown"], "fact_any": ["十四天", "14 days"]},
+    {"id": "MD04", "phase": "markdown", "question": "returns", "as_of": "2026-10-01", "status": "insufficient", "excluded": ["markdown"], "reason": "policy_not_available_on_date"},
+    {"id": "DX01", "phase": "docx", "question": "returns", "as_of": "2026-08-31", "status": "insufficient", "excluded": ["docx"], "reason": "policy_not_available_on_date"},
+    {"id": "DX02", "phase": "docx", "question": "returns", "as_of": "2026-09-01", "status": "answered", "gold": ["docx"], "fact_any": ["十四天", "14 days"]},
+    {"id": "DX03", "phase": "docx", "question": "returns", "as_of": "2026-09-30", "status": "answered", "gold": ["docx"], "fact_any": ["十四天", "14 days"]},
+    {"id": "DX04", "phase": "docx", "question": "returns", "as_of": "2026-10-01", "status": "insufficient", "excluded": ["docx"], "reason": "policy_not_available_on_date"},
+    {"id": "PDF01", "phase": "mixed-pdf", "question": "returns", "as_of": "2026-08-31", "status": "insufficient", "excluded": ["mixed-pdf"], "reason": "policy_not_available_on_date"},
+    {"id": "PDF02", "phase": "mixed-pdf", "question": "returns", "as_of": "2026-09-01", "status": "answered", "gold": ["mixed-pdf"], "fact_any": ["十四天", "14 days"]},
+    {"id": "PDF03", "phase": "mixed-pdf", "question": "returns", "as_of": "2026-09-30", "status": "answered", "gold": ["mixed-pdf"], "fact_any": ["十四天", "14 days"]},
+    {"id": "PDF04", "phase": "mixed-pdf", "question": "returns", "as_of": "2026-10-01", "status": "insufficient", "excluded": ["mixed-pdf"], "reason": "policy_not_available_on_date"},
+    {"id": "C01", "phase": "conflicts", "question": "returns", "status": "answered", "gold": ["plain-pdf"], "candidate_gold": ["shift-service", "shift-ops"], "fact_any": ["十四天", "14 days"]},
+    {"id": "C02", "phase": "conflicts", "question": "shift", "as_of": "2026-09-01", "status": "policy_conflict", "gold": ["shift-service", "shift-ops"], "conflict_gold": ["shift-service", "shift-ops"]},
+    {"id": "R01", "phase": "revoked-pending", "question": "returns", "as_of": "2026-09-01", "status": "insufficient", "blocked": ["mixed-pdf"]},
+    {"id": "R02", "phase": "revoked-synced", "question": "returns", "as_of": "2026-09-01", "status": "insufficient", "blocked": ["mixed-pdf"]}
+  ]
+}

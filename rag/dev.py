@@ -352,6 +352,7 @@ def main() -> None:
     answers.add_argument("--split", choices=("development", "holdout", "all"), default="development")
     answers.add_argument("--paired", action="store_true")
     answers.add_argument("--repeat", type=int, default=1)
+    actions.add_parser("policy-eval", help="Check a versioned policy across Markdown, DOCX and PDF in isolation")
     actions.add_parser("sync-drill", help="Exercise sync delivery and recovery on isolated services")
     cleanup = actions.add_parser("retain", help="Preview or apply a tenant's version retention cleanup")
     cleanup.add_argument("tenant", type=short_code)
@@ -371,6 +372,10 @@ def main() -> None:
         if args.repeat < 1:
             parser.error("--repeat must be positive")
         answer_eval(args.split, args.paired, args.repeat)
+    elif args.action == "policy-eval":
+        from .policy_eval import run
+
+        run()
     elif args.action == "retain":
         if not 1 <= args.days <= 36500 or not 1 <= args.limit <= 1000:
             cleanup.error("use 1 to 36500 days and 1 to 1000 versions per batch")

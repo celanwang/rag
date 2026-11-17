@@ -47,6 +47,18 @@ curl -fsS http://127.0.0.1:59201/_cat/indices?v
 
 Default host ports are PostgreSQL `55433` and Elasticsearch `59201`. Compose `stop` pauses both containers and retains their data volumes.
 
+## Evaluate a policy across document formats
+
+Run against `rag-dev` with the Bailian credentials used for the other evaluations.
+
+```sh
+uv run --locked --env-file .env python -m rag.dev policy-eval
+```
+
+The run starts its own API and ingest worker, database, and Elasticsearch index. It publishes one policy successively as Markdown, DOCX, and a PDF with text and an image on the same page. The 16 cases cover four date checks for each version, unrelated and relevant conflicts in a separate knowledge base, and revocation before and after Elasticsearch synchronization. The run checks stale ES permissions before sync and verifies that the indexed ACL has caught up afterwards.
+
+The fixture SHA-256, original locations, excerpts, and expected outcomes are recorded in [the policy gold set](policy_eval_cases.json). The parse stage inspects persisted chunks and the parser report independently of search. The retrieval stage checks authorized candidates and final evidence for keyword and vector modes. The citation stage reopens answer citations and hashes downloads of the cited versions. The answer stage checks status, the effective date, and the expected facts where applicable. Each row is written to `.rag/dev/<run>/policy-eval.json`, and a failed check makes the command exit nonzero. The run directory also contains the services log and environment manifest.
+
 ## Apply version retention
 
 Use a tenant code from `status`. The first command previews the eligible versions and chunks. Use `--apply` to delete a batch. Run another batch when there are more eligible versions. The defaults are 30 days and at most 100 versions per run. The command uses the local PostgreSQL owner connection.
