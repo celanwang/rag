@@ -27,16 +27,8 @@ COMPOSE = (
     "-f", str(ENV_FILE.with_name("compose.yaml")),
 )
 RUNS = ROOT / ".rag/dev"
-SQL = (
-    ("SELECT to_regclass('rag.tenants') IS NOT NULL", "01-schema.sql"),
-    ("SELECT to_regclass('rag.jobs') IS NOT NULL", "02-ingestion.sql"),
-    ("SELECT to_regprocedure('rag.claim_sync(integer,integer)') IS NOT NULL", "03-sync.sql"),
-    ("SELECT EXISTS (SELECT 1 FROM pg_policy WHERE polrelid = 'rag.chunks'::regclass AND polname = 'api_read_chunks')",
-     "04-retrieval.sql"),
-    ("SELECT to_regprocedure('rag.retire_versions()') IS NOT NULL", "05-retention.sql"),
-    ("SELECT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = 'rag.jobs'::regclass AND attname = 'trace')",
-     "06-audit.sql"),
-)
+SCHEMA_FILE = "/docker-entrypoint-initdb.d/schema.sql"
+SCHEMA_VERSION = "rag schema version 1"
 SECRETS = (
     "RAG_POSTGRES_PASSWORD", "RAG_API_PASSWORD", "RAG_ADMIN_PASSWORD", "RAG_WORKER_PASSWORD",
     "RAG_SYNC_PASSWORD",
@@ -112,16 +104,17 @@ def up() -> None:
     configure()
     env = runtime()
     command(*COMPOSE, "up", "-d", "--wait", "--wait-timeout", "90", env=env)
-    for check, filename in SQL:
-        present = psql(env, "rag", "-Atc", check, capture_output=True, text=True).stdout.strip()
-        if present == "f":
-            psql(env, "rag", "-q", "-f", f"/docker-entrypoint-initdb.d/{filename}")
-    legacy = psql(env, "rag", "-Atc", """
-        SELECT EXISTS (SELECT 1 FROM pg_attribute
-                       WHERE attrelid = 'rag.versions'::regclass AND attname = 'path' AND NOT attisdropped)
+    version = psql(env, "rag", "-Atc", """
+        SELECT CASE WHEN ns IS NULL THEN 'empty'
+                    ELSE COALESCE(obj_description(ns, 'pg_namespace'), 'legacy') END
+        FROM to_regnamespace('rag') AS ns
     """, capture_output=True, text=True).stdout.strip()
-    if legacy == "t":
-        raise SystemExit("Run the original-file migration in the runbook before starting the RAG service.")
+    if version == "empty":
+        psql(env, "rag", "-qf", SCHEMA_FILE)
+    elif version == "legacy":
+        psql(env, "rag", "-qf", "/rag-migrations/001-baseline.sql")
+    elif version != SCHEMA_VERSION:
+        raise SystemExit(f"Unsupported RAG database schema version: {version}")
     command(*COMPOSE, "ps", env=env)
 
 
@@ -150,13 +143,8 @@ def new_run(kind: str):
     print(folder, flush=True)
     try:
         if kind != "demo":
-            snapshot = command(
-                *COMPOSE, "exec", "-T", "postgres", "pg_dump", "-U", "postgres", "-d", "rag",
-                "--schema-only", "--schema=rag", capture_output=True, env=env,
-            ).stdout
             command(*COMPOSE, "exec", "-T", "postgres", "createdb", "-U", "postgres", database, env=env)
-            psql(env, database, "-qc", "CREATE EXTENSION vector WITH SCHEMA public")
-            psql(env, database, "-q", "--single-transaction", input=snapshot)
+            psql(env, database, "-qf", SCHEMA_FILE, "-v", "reuse_roles=on")
         yield env, folder, manifest
     except BaseException:
         manifest["status"] = "failed"
