@@ -20,7 +20,7 @@ uv run --locked python -m poc.benchmark --repeat 3 --out .poc/results.json
 uv run --locked python -m poc.verify
 ```
 
-The benchmark imports 14 files across two tenants and runs 30 questions against four retrieval modes. It uses up to eight candidates per search path, RRF with `k=60`, up to 12 candidates for reranking, and five results per query. The API defaults are 50 candidates per path and up to 30 for reranking. Use dedicated Compose volumes for a fixed corpus. Results include source fingerprints, model versions, ranks, and timings. [Validation report](../docs/poc-results.md)
+The benchmark imports 14 files across two tenants and runs 30 questions against four retrieval modes. It uses up to eight candidates per search path, RRF with `k=60`, up to 12 candidates for reranking, and five results per query. The API defaults are 50 candidates per path and up to 30 for reranking. Use dedicated Compose volumes for a fixed corpus. Results include source fingerprints, model versions, ranks, and timings. [Validation report](../docs/other/poc-results.md)
 
 PostgreSQL listens on `127.0.0.1:55432` and Elasticsearch on `127.0.0.1:59200`. On an empty data volume, PostgreSQL enables pgvector, creates the `documents` and `chunks` tables, and sets up row-level security. The API connects as `rag_app` and accepts an override via `RAG_POSTGRES_DSN`. [Initialization SQL](../docs/env/poc/schema.sql)
 
@@ -86,4 +86,4 @@ uv run --locked python -m poc.ragflow_setup
 uv run --locked python -m poc.ragflow_baseline --repeat 3 --out .poc/ragflow-results.json
 ```
 
-Both systems import the same source files and are scored against evidence anchors in the originals. The comparison also probes tenant isolation and the effect of changing or removing the Alpha reader's document allowlist. [RAGFlow results](../docs/poc-results.md#ragflow-同题对照)
+Both systems import the same source files and are scored against evidence anchors in the originals. The comparison also probes tenant isolation and the effect of changing or removing the Alpha reader's document allowlist. [RAGFlow results](../docs/other/poc-results.md#ragflow-同题对照)

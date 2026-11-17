@@ -15,7 +15,7 @@ uv run --locked --env-file .env python -m rag.dev serve
 
 Run `serve` in a separate terminal to keep the API and both workers running. Open [API documentation](http://127.0.0.1:8001/docs) to browse the endpoints. The demo creates two sample tenants in the main `rag` database and writes read-only keys to the run's local `readers.json`. Use a key from that file in the API docs and query its `shop` knowledge base.
 
-`up` reuses the PostgreSQL and Elasticsearch volumes and applies missing SQL stages. PostgreSQL stores the original bytes in each version. Local credentials are stored in `docs/env/rag/.env`. [Compose config](../docs/env/rag/compose.yaml)
+`up` reuses the PostgreSQL and Elasticsearch volumes. An empty database initializes from `schema.sql`. Existing `rag-dev` databases with the retrieval schema use the versioned migration and keep their data. The `rag` schema comment records the applied version. Local credentials are stored in `docs/env/rag/.env`. [Compose config](../docs/env/rag/compose.yaml) · [Database design](../docs/plan/schema.md)
 
 ```sh
 uv run --locked python -m rag.dev status
@@ -23,7 +23,7 @@ uv run --locked python -m rag.dev test
 uv run --locked --env-file .env python -m rag.dev benchmark --repeat 3
 ```
 
-Each integration or benchmark run uses its own database and Elasticsearch index in the same `rag-dev` services. This keeps queue claims and keyword index statistics local to that run. Resources and logs are retained. Find the database, index, and outcome in `.rag/dev/<run>/run.json`. The benchmark also saves `benchmark.json`, including per-question ranks and timings. [Measured results](../docs/retrieval-results.md)
+Each integration or benchmark run initializes its own database from `schema.sql` and uses its own Elasticsearch index in the same `rag-dev` services. This keeps queue claims and keyword index statistics local to that run. Resources and logs are retained. Find the database, index, and outcome in `.rag/dev/<run>/run.json`. The benchmark also saves `benchmark.json`, including per-question ranks and timings. [Measured results](../docs/other/retrieval-results.md)
 
 `status` lists published sample documents and the resources created by each run. Inspect other databases by replacing `rag` in the PostgreSQL command with the recorded database name.
 
@@ -48,7 +48,7 @@ uv run --locked python -m rag.dev up
 
 ## Apply version retention
 
-Run `up` to apply the [retention SQL](../docs/env/rag/retention.sql) to the dev database. Use a tenant code from `status`. The first command previews the eligible versions and chunks. Use `--apply` to delete a batch. Run another batch when there are more eligible versions. The defaults are 30 days and at most 100 versions per run. The command uses the local PostgreSQL owner connection.
+Use a tenant code from `status`. The first command previews the eligible versions and chunks. Use `--apply` to delete a batch. Run another batch when there are more eligible versions. The defaults are 30 days and at most 100 versions per run. The command uses the local PostgreSQL owner connection.
 
 ```sh
 uv run --locked python -m rag.dev retain alpha
@@ -61,7 +61,7 @@ An inactive version ages from the moment the last target or published pointer to
 
 Use the `X-Request-ID` response header to find JSON events in `.rag/dev/serve.log`. Uploads carry the same `trace_id` through ingestion and keyword indexing. Reader changes and document deletion carry their own request ID through the resulting index update. The event records include the application, tenant, affected resource, and outcome. A cleanup batch returns a trace ID and writes one `document.purge` event per deleted version to stderr.
 
-The provisioning CLI writes grant, revocation, and disable events as JSON to stderr and keeps command results on stdout. Capture stderr to retain CLI audit events when running commands manually. Demo commands and services write to their run's `services.log`. The [audit SQL](../docs/env/rag/audit.sql) adds request trace storage to the job queue.
+The provisioning CLI writes grant, revocation, and disable events as JSON to stderr and keeps command results on stdout. Capture stderr to retain CLI audit events when running commands manually. Demo commands and services write to their run's `services.log`.
 
 ## Configure access
 

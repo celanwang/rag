@@ -1,6 +1,6 @@
 # 多租户 RAG PoC 验证报告
 
-实测日期为 2026 年 11 月 16 日。两项实验共用 14 份中文 Markdown/TXT、两个租户和 30 道题，包含 35 个原文证据标注。题集包括 9 道编号题、14 道语义改写题、5 道跨文档题和 2 道授权审计题。两个租户的同名文件对相同错误码给出不同处理规则。各模式在本机预热后以并发 1 执行 90 次 HTTP 请求。 [题集](../poc/questions.json)
+实测日期为 2026 年 11 月 16 日。两项实验共用 14 份中文 Markdown/TXT、两个租户和 30 道题，包含 35 个原文证据标注。题集包括 9 道编号题、14 道语义改写题、5 道跨文档题和 2 道授权审计题。两个租户的同名文件对相同错误码给出不同处理规则。各模式在本机预热后以并发 1 执行 90 次 HTTP 请求。 [题集](../../poc/questions.json)
 
 ## 自研检索消融
 
@@ -52,4 +52,4 @@ RAGFlow 的 56 个索引块包含全部 35 个金标。90 次原生混合请求�
 
 ## 复跑
 
-自研消融的原始记录在 `.poc/results.json`，跨系统对照和 18 个授权探测在 `.poc/ragflow-results.json`。记录包含题集与原件指纹、逐题排序、配置和请求延迟。 [自研复跑](../poc/README.md#local-retrieval-poc) · [RAGFlow 复跑](../poc/README.md#ragflow-baseline)
+自研消融的原始记录在 `.poc/results.json`，跨系统对照和 18 个授权探测在 `.poc/ragflow-results.json`。记录包含题集与原件指纹、逐题排序、配置和请求延迟。 [自研复跑](../../poc/README.md#local-retrieval-poc) · [RAGFlow 复跑](../../poc/README.md#ragflow-baseline)

@@ -2,9 +2,9 @@
 
 ## 首批交付
 
-首批交付 Markdown/TXT 上传、异步入库、双路检索、引用和原件下载。应用通过 HTTP API 接入，验收通过 curl 或 Python 脚本执行。检索包含 pgvector 向量召回、ES 关键词召回、RRF 融合和可选精排。 [自研 PoC 实测](../poc-results.md#自研检索消融)
+首批交付 Markdown/TXT 上传、异步入库、双路检索、引用和原件下载。应用通过 HTTP API 接入，验收通过 curl 或 Python 脚本执行。检索包含 pgvector 向量召回、ES 关键词召回、RRF 融合和可选精排。 [自研 PoC 实测](../other/poc-results.md#自研检索消融)
 
-首批采用自研链路，在服务端执行文档 ACL。RAGFlow 用作检索效果基线。其私有数据集通过了跨租户探测，同租户 API Key 可通过移除请求白名单读取受限文档。 [RAGFlow 对照](../poc-results.md#ragflow-同题对照) · [选型依据](research.md)
+首批采用自研链路，在服务端执行文档 ACL。RAGFlow 用作检索效果基线。其私有数据集通过了跨租户探测，同租户 API Key 可通过移除请求白名单读取受限文档。 [RAGFlow 对照](../other/poc-results.md#ragflow-同题对照) · [选型依据](research.md)
 
 ## 服务和存储
 

@@ -28,6 +28,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
 - Consolidate prototype Python modules and fixtures under `poc/` and use `poc.*` entry points for the API and verification commands.
 - Organize phase-one design under `docs/plan/` and Compose and SQL files under `docs/env/`, with a dedicated run guide for the PoC.
 - Store business document originals in PostgreSQL and run `rag-dev` with PostgreSQL and Elasticsearch.
+- Consolidate the RAG database bootstrap into one SQL baseline, upgrade retained databases by schema version, and group implementation and verification reports under `docs/other/`.
 
 ### Security
 
