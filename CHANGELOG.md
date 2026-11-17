@@ -18,6 +18,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
 - Markdown and plain-text upload to object storage, PostgreSQL ingestion jobs, and a Bailian embedding worker with retries and version publication.
 - E-commerce sample documents and integration checks for ingestion, publication, and tenant isolation.
 - Elasticsearch sync worker with revision-based cleanup, bounded retries, and searchable status in the ingestion job API.
+- Business retrieval API with pgvector, Elasticsearch, RRF, Bailian reranking, current-version citations, and original downloads.
+- Document reader controls, logical deletion, and a benchmark runner for the original 30 questions.
 
 ### Changed
 

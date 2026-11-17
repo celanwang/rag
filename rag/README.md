@@ -1,6 +1,6 @@
 # RAG Service
 
-The RAG service manages knowledge base access, asynchronously ingests Markdown and plain text, and synchronizes published versions to Elasticsearch. Run the commands from the repository root with Docker Compose, uv, and Python 3.11. [Compose config](../docs/env/rag/compose.yaml)
+The RAG service ingests Markdown and plain text and retrieves authorized evidence with citations. Run the commands from the repository root with Docker Compose, uv, and Python 3.11. [Compose config](../docs/env/rag/compose.yaml)
 
 ## Start local services
 
@@ -34,6 +34,13 @@ docker compose --env-file docs/env/rag/.env -f docs/env/rag/compose.yaml exec -T
   psql -U postgres -d rag -f /docker-entrypoint-initdb.d/03-sync.sql
 ```
 
+For a database initialized before retrieval was added, apply the retrieval permissions after the sync SQL.
+
+```sh
+docker compose --env-file docs/env/rag/.env -f docs/env/rag/compose.yaml exec -T postgres \
+  psql -U postgres -d rag -f /docker-entrypoint-initdb.d/04-retrieval.sql
+```
+
 In each terminal that uses storage, export the endpoint and local credentials. Create the private `rag-originals` bucket once.
 
 ```sh
@@ -64,8 +71,9 @@ Start the API in a second terminal with the restricted role.
 
 ```sh
 . docs/env/rag/.env
+export RAG_ES_URL="http://127.0.0.1:${RAG_ES_PORT:-59201}"
 RAG_DATABASE_URL="postgresql://rag_api:$RAG_API_PASSWORD@127.0.0.1:${RAG_POSTGRES_PORT:-55433}/rag" \
-  uv run --locked uvicorn rag.api:app --host 127.0.0.1 --port 8001
+  uv run --locked --env-file .env uvicorn rag.api:app --host 127.0.0.1 --port 8001
 ```
 
 In the first terminal, the request returns `200` with the library `id`, `code`, and `name`. Repeat it after revoking `read` to see `403`.
@@ -123,6 +131,23 @@ uv run --locked python -m rag.sync
 
 Add `--once` to process one available task. Query the ingestion job again to see `keyword_status=synced` after the worker writes the current version, removes older chunks, and refreshes the index. `keyword_attempts` and `keyword_error` describe the sync task for the current revision. Failed Elasticsearch operations retry independently of ingestion, up to four attempts.
 
+## Retrieve evidence and download a source
+
+After the sample is synchronized, grant read access and query the knowledge base. The API accepts `vector`, `keyword`, `rrf`, and `rerank` as `mode`. API and sync worker must use the same `RAG_ES_URL` and `RAG_ES_INDEX`.
+
+```sh
+uv run --locked python -m rag.cli grant alpha "$rag_app_id" demo read
+curl -fsS http://127.0.0.1:8001/v1/retrieve \
+  -H "Authorization: Bearer $rag_app_key" -H 'Content-Type: application/json' \
+  -d '{"knowledge_base_code":"demo","question":"RET-ALPHA-07 如何申请退货？","mode":"rerank"}'
+```
+
+Use a result's `chunk_id` with `GET /v1/citations/{chunk_id}` for the source lines and its `document_id` with `GET /v1/documents/{document_id}/file` for the current original. Both endpoints require the API key and return `404` when the evidence or file is outside its current read scope.
+
+Use `PATCH /v1/documents/{document_id}/readers` with a write key to change the reader list. Send `{"readers":null}` to inherit library access, `{"readers":[]}` to deny reads, or a list of same-tenant application IDs. `DELETE /v1/documents/{document_id}` makes the document unavailable immediately and queues index cleanup.
+
+Hybrid responses report a failed recall path in `degraded`. A failed reranker returns the pre-reranking order. If PostgreSQL authorization cannot be verified, the service returns `503`.
+
 ## Verify authorization
 
 Run the checks against a disposable local database. They provision isolated test tenants through the CLI and exercise the API and PostgreSQL policies.
@@ -143,6 +168,16 @@ export RAG_TEST_OWNER_URL="postgresql://postgres:$RAG_POSTGRES_PASSWORD@127.0.0.
 export RAG_ES_URL="http://127.0.0.1:${RAG_ES_PORT:-59201}"
 uv run --locked python -m unittest discover -s tests -v
 ```
+
+## Benchmark retrieval
+
+Start the API and both workers against a disposable environment with an empty Elasticsearch index. Export `RAG_ADMIN_DATABASE_URL` in the benchmark terminal. The runner provisions two tenants, uploads the original corpus, verifies all gold citations, and records four modes over 30 questions. [Measured results](../docs/retrieval-results.md)
+
+```sh
+uv run --locked python -m rag.benchmark --repeat 3
+```
+
+The local report at `.rag/benchmark.json` contains per-question ranks, timings, corpus hashes, and observed intervals from publication to keyword availability.
 
 ## Verify Bailian model access
 

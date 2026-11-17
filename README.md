@@ -8,10 +8,11 @@ A multi-tenant retrieval-augmented generation (RAG) service.
 - Asynchronous Markdown and plain-text ingestion with version publication.
 - Tenant-scoped document, version, and job storage.
 - Asynchronous keyword index synchronization for published documents.
+- Vector, keyword, and hybrid retrieval with optional reranking, source citations, and original downloads.
 
 ## Architecture
 
-The service lives in `rag/`. FastAPI handles authentication and uploads. PostgreSQL tracks permissions, jobs, and published versions. The ingestion worker reads originals from S3-compatible storage and stores Bailian embeddings in pgvector. A separate worker synchronizes the currently published version to Elasticsearch.
+The service lives in `rag/`. PostgreSQL tracks permissions and published versions. The ingestion worker reads originals from S3-compatible storage and stores Bailian embeddings in pgvector. A separate worker synchronizes the current version to Elasticsearch. The FastAPI retrieval endpoint combines both recall paths and checks evidence against PostgreSQL.
 
 The PoC provides reproducible hybrid retrieval benchmarks and a RAGFlow baseline. [Validation results](docs/poc-results.md)
 
@@ -29,6 +30,7 @@ The PoC provides reproducible hybrid retrieval benchmarks and a RAGFlow baseline
 ## Development
 
 - [Run and verify the RAG service](rag/README.md)
+- [Business retrieval benchmark](docs/retrieval-results.md)
 - [Run and verify the PoC](poc/README.md)
 - [Compose and database initialization files](docs/README.md#env)
 - [Contributing](CONTRIBUTING.md)

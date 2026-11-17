@@ -222,3 +222,6 @@ __marimo__/
 
 # Generated PoC evaluation
 /.poc/
+
+# Generated RAG benchmark
+/.rag/
