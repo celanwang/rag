@@ -65,3 +65,13 @@ export RAG_ADMIN_DATABASE_URL="postgresql://rag_admin:$RAG_ADMIN_PASSWORD@127.0.
 export RAG_DATABASE_URL="postgresql://rag_api:$RAG_API_PASSWORD@127.0.0.1:55433/rag"
 uv run --locked python -m unittest discover -s tests -v
 ```
+
+## Verify Bailian model access
+
+The model client uses `text-embedding-v4` for 512-dimensional document and query vectors and `qwen3-rerank` for reranking. Put `DASHSCOPE_API_KEY` in the local, Git-ignored `.env` file at the repository root. Set `DASHSCOPE_HTTP_BASE_URL` if your key uses a different DashScope region or a workspace endpoint. [Bailian endpoints](https://help.aliyun.com/zh/model-studio/base-url)
+
+Run this check with synthetic text to verify both models.
+
+```sh
+uv run --locked --env-file .env python -m rag.models
+```

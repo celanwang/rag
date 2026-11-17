@@ -14,6 +14,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
 - RAGFlow 1.0.0 baseline with the same source files, a local BGE embedding endpoint, and comparable evidence and authorization probes.
 - Phase-one design, an eight-table schema proposal, and a consolidated PoC validation report.
 - RAG service with an independent database, tenant and application provisioning, API Key authentication, and knowledge base read and write grants.
+- Alibaba Cloud Bailian client for document and query embeddings and text reranking, with a local model check.
 
 ### Changed
 
