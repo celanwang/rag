@@ -17,6 +17,7 @@ services:
       - ./ingestion.sql:/docker-entrypoint-initdb.d/02-ingestion.sql:ro
       - ./sync.sql:/docker-entrypoint-initdb.d/03-sync.sql:ro
       - ./retrieval.sql:/docker-entrypoint-initdb.d/04-retrieval.sql:ro
+      - ./retention.sql:/docker-entrypoint-initdb.d/05-retention.sql:ro
     healthcheck:
       test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "postgres", "-d", "rag"]
       interval: 3s

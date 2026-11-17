@@ -71,7 +71,7 @@ def existing_submission(
 ) -> Submission | None:
     row = conn.execute(
         """
-        SELECT id, document, version, fingerprint
+        SELECT id, document, COALESCE(version, purged), fingerprint
         FROM jobs
         WHERE tenant = %s AND library = %s AND app = %s AND request = %s AND kind = 'ingest'
         """,
@@ -160,9 +160,10 @@ def job_status(pool: ConnectionPool, api_key: str, job: UUID) -> JobStatus:
     with app_session(pool, api_key) as (conn, identity):
         row = conn.execute(
             """
-            SELECT j.id, j.document, j.version, j.state, j.stage, j.attempts, j.error, j.available,
+            SELECT j.id, j.document, COALESCE(j.version, j.purged), j.state, j.stage, j.attempts, j.error, j.available,
                    d.published,
-                   CASE WHEN d.published IS NULL THEN 'not_published'
+                   CASE WHEN d.deleted IS NOT NULL AND d.synced = d.revision THEN 'synced'
+                        WHEN d.published IS NULL THEN 'not_published'
                         WHEN d.synced = d.revision THEN 'synced'
                         WHEN s.state IN ('retry', 'failed') THEN s.state ELSE 'pending' END,
                    s.attempts, s.error,

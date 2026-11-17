@@ -14,6 +14,11 @@ from tempfile import NamedTemporaryFile
 from urllib.parse import quote
 
 import httpx
+import psycopg
+
+from .cli import ConfigurationError, short_code
+from .db import SCHEMA_OPTIONS
+from .retention import retain
 
 ROOT = Path(__file__).resolve().parents[1]
 ENV_FILE = ROOT / "docs/env/rag/.env"
@@ -28,6 +33,7 @@ SQL = (
     ("SELECT to_regprocedure('rag.claim_sync(integer,integer)') IS NOT NULL", "03-sync.sql"),
     ("SELECT EXISTS (SELECT 1 FROM pg_policy WHERE polrelid = 'rag.chunks'::regclass AND polname = 'api_read_chunks')",
      "04-retrieval.sql"),
+    ("SELECT to_regprocedure('rag.retire_versions()') IS NOT NULL", "05-retention.sql"),
 )
 SECRETS = (
     "RAG_POSTGRES_PASSWORD", "RAG_API_PASSWORD", "RAG_ADMIN_PASSWORD", "RAG_WORKER_PASSWORD",
@@ -294,11 +300,26 @@ def main() -> None:
         actions.add_parser(action)
     measured = actions.add_parser("benchmark")
     measured.add_argument("--repeat", type=int, default=3)
+    cleanup = actions.add_parser("retain", help="Preview or apply a tenant's version retention cleanup")
+    cleanup.add_argument("tenant", type=short_code)
+    cleanup.add_argument("--days", type=int, default=30)
+    cleanup.add_argument("--limit", type=int, default=100)
+    cleanup.add_argument("--apply", action="store_true")
     args = parser.parse_args()
     if args.action == "benchmark":
         if args.repeat < 1:
             parser.error("--repeat must be positive")
         benchmark(args.repeat)
+    elif args.action == "retain":
+        if not 1 <= args.days <= 36500 or not 1 <= args.limit <= 1000:
+            cleanup.error("use 1 to 36500 days and 1 to 1000 versions per batch")
+        try:
+            with psycopg.connect(runtime()["RAG_TEST_OWNER_URL"], connect_timeout=5, options=SCHEMA_OPTIONS) as conn:
+                print(json.dumps(retain(conn, args.tenant, days=args.days, limit=args.limit, apply=args.apply)))
+        except ConfigurationError as error:
+            cleanup.exit(1, f"{error}\n")
+        except psycopg.Error:
+            cleanup.exit(1, "Retention database operation failed. Run rag.dev up to apply schema changes first.\n")
     elif args.action == "serve":
         try:
             with services(runtime(), 8001) as (url, processes):
