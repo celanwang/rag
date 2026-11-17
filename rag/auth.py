@@ -40,6 +40,10 @@ def key_digest(key: str) -> bytes:
     return sha256(key.encode()).digest()
 
 
+def set_tenant(conn: psycopg.Connection, tenant: UUID) -> None:
+    conn.execute("SELECT set_config('rag.tenant_id', %s, true)", (str(tenant),))
+
+
 @contextmanager
 def app_session(pool: ConnectionPool, key: str) -> Iterator[tuple[psycopg.Connection, Identity]]:
     with pool.connection() as conn, conn.transaction():
@@ -48,7 +52,7 @@ def app_session(pool: ConnectionPool, key: str) -> Iterator[tuple[psycopg.Connec
             raise InvalidKey
 
         identity = Identity(*row)
-        conn.execute("SELECT set_config('rag.tenant_id', %s, true)", (str(identity.tenant),))
+        set_tenant(conn, identity.tenant)
         yield conn, identity
 
 
@@ -67,5 +71,5 @@ def require_library(conn: psycopg.Connection, identity: Identity, code: str, act
         raise LibraryNotFound
     library_id, library_code, name, allowed = row
     if not allowed:
-        raise LibraryForbidden
+        raise LibraryForbidden(action)
     return Library(library_id, library_code, name)

@@ -45,7 +45,7 @@
 | 接口 | 首批行为 |
 | --- | --- |
 | `GET /v1/knowledge-bases/{code}` | 按调用应用所属租户和知识库读权限返回库的 ID、短码及名称。 |
-| `POST /v1/knowledge-bases/{id}/documents` | 上传原件。更新时指定逻辑文档 ID，提交后返回文档、版本和任务 ID。 |
+| `POST /v1/knowledge-bases/{code}/documents` | 请求体为不超过 256 KiB 的 UTF-8 Markdown/TXT 原件，查询参数为 `filename`，请求头包含 `Idempotency-Key`。更新时传入 `document_id`。受理后返回 `202` 及文档、版本和任务 ID。 |
 | `GET /v1/ingestion-jobs/{id}` | 查看入库阶段、重试、失败原因、发布版本和关键词同步状态。 |
 | `DELETE /v1/documents/{id}` | 提交逻辑删除和 ES 同步任务。 |
 | `POST /v1/retrieve` | 查询有权限的证据，支持单路、RRF 和精排，响应记录降级分支。 |
