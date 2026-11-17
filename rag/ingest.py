@@ -11,9 +11,11 @@ from psycopg_pool import ConnectionPool
 
 from .audit import emit
 from .auth import Identity, app_session, require_library
-from .text import CONFIG, InvalidText, decode_text
+from .format_parser import DOCX, PDF, PROFILES, REPORT, ParseFailure, ParseReport, matches_signature
+from .parse import version_config
+from .text import InvalidText, decode_text
 
-MIMES = {".md": "text/markdown", ".txt": "text/plain"}
+MIMES = {".md": "text/markdown", ".txt": "text/plain", ".docx": DOCX, ".pdf": PDF}
 
 
 class DocumentNotFound(Exception):
@@ -49,14 +51,15 @@ class JobStatus:
     keyword_status: str
     keyword_attempts: int | None
     keyword_error: str | None
+    parse_report: ParseReport | None = None
 
 
 def upload_mime(filename: str) -> str:
     if any(ord(char) < 32 or char in "/\\" for char in filename):
-        raise InvalidText("Expected a plain Markdown or text filename")
+        raise InvalidText("Expected a plain filename")
     mime = MIMES.get(PurePath(filename).suffix.lower())
     if mime is None:
-        raise InvalidText("Expected a .md or .txt file")
+        raise InvalidText("Expected a .md, .txt, .docx or .pdf file")
     return mime
 
 
@@ -116,7 +119,7 @@ def record_submission(
         INSERT INTO versions (id, tenant, library, document, number, filename, mime, content, checksum, config)
         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """,
-        (version, tenant, library, document, number, filename, mime, content, checksum, Jsonb(CONFIG)),
+        (version, tenant, library, document, number, filename, mime, content, checksum, Jsonb(version_config(mime))),
     )
     conn.execute("UPDATE documents SET target = %s WHERE id = %s", (version, document))
     job = conn.execute(
@@ -134,7 +137,10 @@ def submit(
     filename: str, body: bytes, document: UUID | None, trace: UUID,
 ) -> Submission:
     mime = upload_mime(filename)
-    decode_text(body)
+    if not matches_signature(mime, body):
+        raise ParseFailure("format_mismatch")
+    if mime not in PROFILES:
+        decode_text(body)
     checksum = hashlib.sha256(body).digest()
     fingerprint = upload_fingerprint(filename, mime, document, checksum)
 
@@ -164,7 +170,7 @@ def job_status(pool: ConnectionPool, api_key: str, job: UUID) -> JobStatus:
                         WHEN d.published IS NULL THEN 'not_published'
                         WHEN d.synced = d.revision THEN 'synced'
                         WHEN s.state IN ('retry', 'failed') THEN s.state ELSE 'pending' END,
-                   s.attempts, s.error,
+                   s.attempts, s.error, j.parse_report,
                    l.code
             FROM jobs AS j
             JOIN documents AS d ON (d.tenant, d.library, d.id) = (j.tenant, j.library, j.document)
@@ -178,4 +184,5 @@ def job_status(pool: ConnectionPool, api_key: str, job: UUID) -> JobStatus:
         if row is None:
             raise JobNotFound
         require_library(conn, identity, row[-1], "write")
-        return JobStatus(*row[:-1])
+        report = REPORT.validate_python(row[-2]) if row[-2] is not None else None
+        return JobStatus(*row[:-2], report)

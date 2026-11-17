@@ -21,17 +21,20 @@ from .db import SCHEMA_OPTIONS
 from .retention import retain
 
 ROOT = Path(__file__).resolve().parents[1]
-ENV_FILE = ROOT / "docs/env/rag/.env"
+COMPOSE_FILE = ROOT / "docs/env/rag/compose.yaml"
+ENV_FILE = Path(os.getenv("RAG_DEV_ENV_FILE", str(COMPOSE_FILE.with_name(".env")))).expanduser().resolve()
+COMPOSE_PROJECT = os.getenv("RAG_DEV_PROJECT", "rag-dev")
 COMPOSE = (
-    "docker", "compose", "-p", "rag-dev", "--env-file", str(ENV_FILE),
-    "-f", str(ENV_FILE.with_name("compose.yaml")),
+    "docker", "compose", "-p", COMPOSE_PROJECT, "--env-file", str(ENV_FILE),
+    "-f", str(COMPOSE_FILE),
 )
 RUNS = ROOT / ".rag/dev"
 SCHEMA_FILE = "/docker-entrypoint-initdb.d/schema.sql"
-SCHEMA_VERSION = "rag schema version 4"
+SCHEMA_VERSION = "rag schema version 5"
 SCHEMA_UPGRADES = {"rag schema version 1": "002_sync_dispatch.sql",
                    "rag schema version 2": "003_ingest_dispatch.sql",
-                   "rag schema version 3": "004_index_generations.sql"}
+                   "rag schema version 3": "004_index_generations.sql",
+                   "rag schema version 4": "005_ingest_parse_report.sql"}
 MIGRATIONS = ROOT / "docs/env/rag/migrations"
 SECRETS = (
     "RAG_POSTGRES_PASSWORD", "RAG_API_PASSWORD", "RAG_ADMIN_PASSWORD", "RAG_WORKER_PASSWORD",
@@ -62,12 +65,12 @@ def container_env(name: str) -> dict:
 
 def configure() -> None:
     values = read_local_env()
-    postgres = container_env("rag-dev-postgres-1")
+    postgres = container_env(f"{COMPOSE_PROJECT}-postgres-1")
     recorded = postgres.copy()
     recorded["RAG_POSTGRES_PASSWORD"] = postgres.get("POSTGRES_PASSWORD")
     if not postgres and not all(values.get(name) for name in SECRETS[:3]):
         volume = subprocess.run(
-            ["docker", "volume", "inspect", "rag-dev_postgres-data"], capture_output=True, check=False,
+            ["docker", "volume", "inspect", f"{COMPOSE_PROJECT}_postgres-data"], capture_output=True, check=False,
         )
         if volume.returncode == 0:
             raise SystemExit(f"Restore the PostgreSQL, API, and admin passwords in {ENV_FILE} for the existing volume.")

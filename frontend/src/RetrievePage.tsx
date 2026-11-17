@@ -19,6 +19,19 @@ const stages: Record<string, string> = {
   authorization: "候选权限复核", rerank: "百炼精排", authorization_final: "结果权限复核",
 };
 
+function sourcePosition(evidence: Evidence, detailed = false): string {
+  const location = evidence.location;
+  if (location?.kind === "pdf_page") return `第 ${location.page} 页`;
+  if (location?.kind === "docx_paragraph" || location?.kind === "docx_table_row") {
+    const position = location.kind === "docx_paragraph" ? `第 ${location.paragraph} 段`
+      : `第 ${location.table} 表 · 第 ${location.row} 行`;
+    return detailed && location.section.length ? `${location.section.join(" / ")} · ${position}` : position;
+  }
+  const start = evidence.line_start;
+  const end = evidence.line_end;
+  return start != null && end != null ? `第 ${start === end ? start : `${start}–${end}`} 行` : "原文摘录";
+}
+
 export function LibrarySelect({ library, libraries, onChange, id }: {
   library?: Library; libraries: Library[]; onChange: (library: Library) => void; id?: string;
 }) {
@@ -115,7 +128,7 @@ export function RetrievePage({ session, library, setLibrary, refresh, question, 
                     <div className="evidence-top"><span className="rank">{index + 1}</span><h3>{evidence.heading || evidence.filename}</h3></div>
                     <p className="evidence-text">{evidence.body}</p>
                     <div className="evidence-footer">
-                      <span><FileText size={14} />{evidence.filename} <span className="line-ref">L{evidence.line_start}–{evidence.line_end}</span></span>
+                      <span><FileText size={14} />{evidence.filename} <span className="line-ref">{sourcePosition(evidence)}</span></span>
                       <button className="text-button" onClick={() => setSource(evidence)}>查看引用<ArrowRight size={15} /></button>
                     </div>
                   </li>,
@@ -179,7 +192,8 @@ function CitationDialog({ evidence, workspaceId, onClose }: { evidence: Evidence
     setDownloading(true);
     setError(null);
     try {
-      await api.download(workspaceId, evidence.document_id, evidence.filename, abort.current?.signal);
+      if (citation) await api.download(workspaceId, citation.document_id, citation.filename,
+                                       abort.current?.signal, citation.version_id);
     } catch (cause) {
       if (!abort.current?.signal.aborted) setError(cause);
     } finally { setDownloading(false); }
@@ -189,7 +203,7 @@ function CitationDialog({ evidence, workspaceId, onClose }: { evidence: Evidence
     <div className="dialog-form">
       <Notice error={error} />
       {citation ? <>
-        <div className="citation-meta"><FileText size={18} /><div><strong>{citation.filename}</strong><small>原文第 {citation.line_start}–{citation.line_end} 行</small></div></div>
+        <div className="citation-meta"><FileText size={18} /><div><strong>{citation.filename}</strong><small>{sourcePosition(citation, true)}</small></div></div>
         {citation.heading && <h3 className="citation-title">{citation.heading}</h3>}
         <pre className="citation-text">{citation.body}</pre>
         <footer className="dialog-footer"><button className="button button-primary" onClick={download} disabled={downloading}>{downloading ? <Busy>下载中</Busy> : <><Download size={16} />下载原件</>}</button></footer>

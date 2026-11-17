@@ -1,13 +1,15 @@
 import json
 from collections.abc import Iterator
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from uuid import UUID
 
 import psycopg
+from pydantic import TypeAdapter
 from psycopg_pool import ConnectionPool
 
 from .auth import Identity, InvalidKey, Library, LibraryNotFound, app_session, require_library
+from .locations import Location, TextLocation
 from .policy import Policy
 from .text import model_passage
 
@@ -26,7 +28,8 @@ READABLE = """
 """
 EVIDENCE = """
     SELECT c.id, c.document, c.version, v.filename, c.heading, c.body,
-           (c.location ->> 'line_start')::int, (c.location ->> 'line_end')::int, c.location -> 'policy'
+           (c.location ->> 'line_start')::int, (c.location ->> 'line_end')::int,
+           c.location -> 'policy', c.location -> 'source'
 """ + PUBLISHED + CHUNKS + READABLE
 
 
@@ -51,15 +54,29 @@ class Evidence:
     filename: str
     heading: str | None
     body: str
-    line_start: int
-    line_end: int
+    line_start: int | None
+    line_end: int | None
     policy_data: dict | None = None
+    location: Location | None = None
 
     def passage(self) -> str:
         return model_passage(self.heading, self.body)
 
     def policy(self) -> Policy | None:
         return Policy.model_validate(self.policy_data) if self.policy_data else None
+
+
+LOCATOR = TypeAdapter(Location)
+
+
+def evidence_from_row(row: tuple) -> Evidence:
+    *fields, source = row
+    item = Evidence(*fields)
+    if source is not None:
+        return replace(item, location=LOCATOR.validate_python(source))
+    if item.line_start is not None and item.line_end is not None:
+        return replace(item, location=TextLocation(item.line_start, item.line_end))
+    return item
 
 
 @dataclass(frozen=True)
@@ -107,7 +124,7 @@ def load_evidence(pool: ConnectionPool, key: str, scope: ReadScope, ids: set[UUI
             EVIDENCE + "AND c.library = %(library)s AND c.id = ANY(%(ids)s::uuid[])",
             scope.params() | {"ids": list(ids)},
         ).fetchall()
-    return {row[0]: Evidence(*row) for row in rows}
+    return {row[0]: evidence_from_row(row) for row in rows}
 
 
 def neighbors(pool: ConnectionPool, key: str, scope: ReadScope, anchors: list[UUID]) -> dict[UUID, Evidence]:
@@ -126,7 +143,7 @@ def neighbors(pool: ConnectionPool, key: str, scope: ReadScope, anchors: list[UU
             ORDER BY c.document, c.ordinal
             """, scope.params() | {"anchors": anchors},
         ).fetchall()
-    return {row[0]: Evidence(*row) for row in rows}
+    return {row[0]: evidence_from_row(row) for row in rows}
 
 
 def citation(pool: ConnectionPool, key: str, chunk: UUID) -> Evidence:
@@ -137,16 +154,18 @@ def citation(pool: ConnectionPool, key: str, chunk: UUID) -> Evidence:
         ).fetchone()
     if row is None:
         raise CitationNotFound
-    return Evidence(*row)
+    return evidence_from_row(row)
 
 
-def original(pool: ConnectionPool, key: str, document: UUID) -> Original | None:
+def original(pool: ConnectionPool, key: str, document: UUID, version: UUID | None = None) -> Original | None:
     with app_session(pool, key) as (conn, identity):
-        row = conn.execute(
-            "SELECT v.id, v.filename, v.mime, v.content, v.checksum" + PUBLISHED + READABLE
-            + "AND d.id = %(document)s",
-            {"tenant": identity.tenant, "app": identity.app, "document": document},
-        ).fetchone()
+        params = {"tenant": identity.tenant, "app": identity.app, "document": document}
+        query = ("SELECT v.id, v.filename, v.mime, v.content, v.checksum" + PUBLISHED + READABLE
+                 + "AND d.id = %(document)s")
+        if version is not None:
+            query += " AND v.id = %(version)s"
+            params["version"] = version
+        row = conn.execute(query, params).fetchone()
     return Original(*row) if row is not None else None
 
 

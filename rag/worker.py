@@ -3,7 +3,7 @@ import hashlib
 import json
 import logging
 import os
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from functools import partial
 from uuid import UUID, uuid5
 
@@ -12,12 +12,15 @@ import psycopg
 from psycopg.types.json import Jsonb
 
 from .audit import emit
+from .format_parser import PROFILES, ParseFailure, ParseReport
 from .jobs import (
     LEASE_SECONDS, Lease, LeaseLost, complete, fail_in_transaction, lock_lease, run_worker, tenant_transaction,
 )
 from .models import EMBEDDING_BATCH_SIZE, BailianModels, ModelError
+from .parse import IndexChunk, prepare_binary, version_config
 from .policy import Policy, read_metadata, section_policies
-from .text import CONFIG, MAX_UPLOAD_BYTES, Chunk, InvalidText, decode_text, split_text
+from .text import MAX_UPLOAD_BYTES, InvalidText, decode_text, split_text
+
 
 @dataclass(frozen=True)
 class Source:
@@ -49,15 +52,16 @@ def read_source(conn: psycopg.Connection, lease: Lease) -> Source:
         return Source(*row)
 
 
-def advance(conn: psycopg.Connection, lease: Lease, stage: str) -> None:
+def advance(conn: psycopg.Connection, lease: Lease, stage: str, report: ParseReport | None = None) -> None:
     with tenant_transaction(conn, lease):
         row = conn.execute(
             """
-            UPDATE jobs SET stage = %s, deadline = clock_timestamp() + %s * interval '1 second'
+            UPDATE jobs SET stage = %s, deadline = clock_timestamp() + %s * interval '1 second',
+                            parse_report = COALESCE(%s, parse_report)
             WHERE id = %s AND lease = %s AND deadline > clock_timestamp()
             RETURNING id
             """,
-            (stage, LEASE_SECONDS, lease.job, lease.token),
+            (stage, LEASE_SECONDS, Jsonb(asdict(report)) if report else None, lease.job, lease.token),
         ).fetchone()
         if row is None:
             raise LeaseLost
@@ -65,7 +69,7 @@ def advance(conn: psycopg.Connection, lease: Lease, stage: str) -> None:
 
 def publish(
     conn: psycopg.Connection, lease: Lease, source: Source,
-    chunks: list[Chunk], vectors: list[list[float]], policies: dict[str, Policy] | None = None,
+    chunks: list[IndexChunk], vectors: list[list[float]], policies: dict[str, Policy] | None = None,
 ) -> bool:
     with tenant_transaction(conn, lease):
         document = conn.execute(
@@ -87,9 +91,7 @@ def publish(
                     (
                         uuid5(source.version, str(ordinal)), lease.tenant, source.library, source.document,
                         source.version, ordinal, chunk.heading, chunk.body,
-                        Jsonb({"line_start": chunk.line_start, "line_end": chunk.line_end,
-                               "start_offset": chunk.start_offset, "end_offset": chunk.end_offset,
-                               "section_start": chunk.section_start,
+                        Jsonb({**chunk.location_json(),
                                **({"policy": policies[chunk.heading].model_dump(mode="json")}
                                   if policies and chunk.heading in policies else {})}),
                         json.dumps(vector),
@@ -113,22 +115,31 @@ def publish(
 
 
 def process(conn: psycopg.Connection, lease: Lease, models: BailianModels) -> None:
+    failed_report = None
     try:
         source = read_source(conn, lease)
-        if source.config != CONFIG:
+        if source.config != version_config(source.mime):
             raise InvalidText("Unsupported version configuration")
         original = source.content
         if len(original) > MAX_UPLOAD_BYTES or hashlib.sha256(original).digest() != source.checksum:
             raise InvalidText("Original checksum does not match")
-        text = decode_text(original)
-        markdown = source.mime == "text/markdown"
-        chunks = split_text(text, markdown=markdown)
-        if not chunks:
-            raise InvalidText("Document contains no indexable text")
-        try:
-            policies = section_policies({chunk.heading for chunk in chunks}, read_metadata(text, markdown))
-        except ValueError as error:
-            raise InvalidText("Invalid policy metadata") from error
+        policies = {}
+        if source.mime in PROFILES:
+            advance(conn, lease, "parse")
+            chunks, report = prepare_binary(source.mime, original, source.config)
+            advance(conn, lease, "embed", report)
+        else:
+            markdown = source.mime == "text/markdown"
+            if not markdown and source.mime != "text/plain":
+                raise InvalidText("Unsupported original format")
+            text = decode_text(original)
+            chunks = split_text(text, markdown=markdown)
+            if not chunks:
+                raise InvalidText("Document contains no indexable text")
+            try:
+                policies = section_policies({chunk.heading for chunk in chunks}, read_metadata(text, markdown))
+            except ValueError as error:
+                raise InvalidText("Invalid policy metadata") from error
 
         vectors = []
         for start in range(0, len(chunks), EMBEDDING_BATCH_SIZE):
@@ -143,6 +154,9 @@ def process(conn: psycopg.Connection, lease: Lease, models: BailianModels) -> No
         return
     except LeaseLost:
         return
+    except ParseFailure as error:
+        reason, retryable = error.code, False
+        failed_report = error.report
     except InvalidText:
         reason, retryable = "content_invalid", False
     except httpx.RequestError:
@@ -157,6 +171,9 @@ def process(conn: psycopg.Connection, lease: Lease, models: BailianModels) -> No
     try:
         with tenant_transaction(conn, lease):
             state = fail_in_transaction(conn, lease, reason, retryable)
+            if failed_report:
+                conn.execute("UPDATE jobs SET parse_report = %s WHERE id = %s",
+                             (Jsonb(asdict(failed_report)), lease.job))
         emit("document.publish", source.trace, outcome=state, actor_type="app", actor=source.actor,
              service="ingest", tenant=lease.tenant, job=lease.job, library=source.library,
              document=source.document, version=source.version, error=reason)

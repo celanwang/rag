@@ -1,7 +1,7 @@
 import { ArrowRight, CircleCheck, CloudUpload, FileText, History, KeyRound, X } from "lucide-react";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { api, ApiError, type Job, type Library, type Session } from "./api";
+import { api, ApiError, type Job, type Library, type ParseReport, type Session } from "./api";
 import { Busy, Empty, Notice, PageHeading, UUID_PATTERN } from "./ui";
 
 interface TrackedJob {
@@ -13,7 +13,7 @@ interface TrackedJob {
 }
 
 const finished = (job?: Job) => Boolean(job &&
-  (job.state === "failed" || ["failed", "synced"].includes(job.keyword_status)));
+  (job.state === "failed" || (job.state === "done" && ["failed", "synced"].includes(job.keyword_status))));
 
 export function useIngestion(workspaceId?: string) {
   const [entries, setEntries] = useState<TrackedJob[]>([]);
@@ -61,6 +61,35 @@ export function useIngestion(workspaceId?: string) {
 const jobStates = { queued: "排队中", running: "处理中", retry: "等待重试", done: "已发布", failed: "入库失败" };
 const syncStates = { not_published: "待发布", pending: "等待同步", retry: "同步重试", failed: "索引同步失败", synced: "已同步" };
 
+const reasons: Record<string, string> = {
+  format_mismatch: "文件内容与扩展名不符。",
+  content_encrypted: "文件已加密，请上传未加密原件。",
+  content_corrupt: "无法读取原件，文件可能已损坏。",
+  content_limit: "文件超出解析限制。",
+  content_no_text: "文件没有可入库的文本。",
+  pdf_scanned: "PDF 仅含扫描或图片页，当前不执行 OCR。",
+  parser_failed: "解析器未能处理该文件。",
+  docx_skipped_content: "已跳过不支持的 DOCX 内容。",
+  docx_skipped_secondary_parts: "已跳过页眉、页脚或附注等次要内容。",
+  pdf_parser_warning: "PDF 提取过程中遇到无法完整处理的内容。",
+};
+
+function jobReason(reason: string | null) {
+  return reason ? (reasons[reason] ?? reason) : null;
+}
+
+function ParseDetails({ report }: { report: ParseReport }) {
+  const details = [
+    report.scan_pages.length > 0 && `图片页：${report.scan_pages.join("、")}`,
+    report.no_text_pages.length > 0 && `其他无可提取文字的页：${report.no_text_pages.join("、")}`,
+    report.skipped_tables.length > 0 && `跳过复杂表格：${report.skipped_tables.join("、")}`,
+    ...report.warnings.filter((code) => Object.hasOwn(reasons, code)).map(jobReason),
+  ].filter(Boolean);
+  const label = { complete: "解析完成", partial: "部分解析", failed: "解析失败" }[report.status];
+  return <small className={report.status === "partial" ? "job-reason" : undefined}>
+    {label}{details.length ? ` · ${details.join("；")}` : ""}</small>;
+}
+
 export function IngestPage({ session, library, queue, refresh }: {
   session: Session | null; library?: Library; queue: ReturnType<typeof useIngestion>; refresh: () => void;
 }) {
@@ -84,7 +113,7 @@ export function IngestPage({ session, library, queue, refresh }: {
     key.current = undefined;
     setFile(undefined);
     if (!next) return;
-    if (!/\.(md|txt)$/i.test(next.name)) { setError(new Error("请选择 .md 或 .txt 文件。")); return; }
+    if (!/\.(md|txt|docx|pdf)$/i.test(next.name)) { setError(new Error("请选择 .md、.txt、.docx 或 .pdf 文件。")); return; }
     if (!next.size || next.size > 256 * 1024) { setError(new Error("文件大小须在 1 字节至 256 KiB 之间。")); return; }
     setFile(next);
   }
@@ -125,7 +154,7 @@ export function IngestPage({ session, library, queue, refresh }: {
     <div className="workbench">
       <div className="work-main">
         <form className="panel" onSubmit={submit}>
-          <div className="panel-header"><div className="section-icon blue"><CloudUpload size={18} /></div><div><h2>上传文档</h2><p>Markdown、TXT · 单文件最大 256 KiB</p></div></div>
+          <div className="panel-header"><div className="section-icon blue"><CloudUpload size={18} /></div><div><h2>上传文档</h2><p>Markdown、TXT、DOCX、PDF · 单文件最大 256 KiB</p></div></div>
           <div className="upload-body">
             <label className="field">目标知识库
               <input list="upload-libraries" placeholder="输入知识库短码" value={code} onChange={(e) => { setCode(e.target.value); key.current = undefined; }} required disabled={busy || readOnly} pattern="[a-z0-9][a-z0-9\-]{0,62}" />
@@ -141,11 +170,11 @@ export function IngestPage({ session, library, queue, refresh }: {
                 event.preventDefault(); setDrag(false);
                 if (!busy && !readOnly) choose(event.dataTransfer.files[0]);
               }}>
-              <input ref={input} aria-label="选择文件" className="sr-only" type="file" accept=".md,.txt" disabled={busy || readOnly}
+              <input ref={input} aria-label="选择文件" className="sr-only" type="file" accept=".md,.txt,.docx,.pdf" disabled={busy || readOnly}
                 onChange={(e) => choose(e.target.files?.[0])} />
               <span className="drop-icon"><CloudUpload size={26} /></span>
               <strong>点击选择或拖入文件</strong>
-              <small>支持 UTF-8 编码的 .md 和 .txt 原件</small>
+              <small>支持 UTF-8 文本、DOCX 和含文本层的 PDF</small>
             </label>
             {file && <div className="selected-file"><FileText size={17} /><span><strong>{file.name}</strong><small>{(file.size / 1024).toFixed(1)} KiB</small></span>
               <button className="icon-button" type="button" disabled={busy} onClick={() => { choose(); if (input.current) input.current.value = ""; }} aria-label="移除文件"><X size={17} /></button>
@@ -173,7 +202,9 @@ export function IngestPage({ session, library, queue, refresh }: {
                 {entry.job && <small>入库尝试 {entry.job.attempts} 次</small>}
               </div>
               {entry.job?.state === "retry" && <small>下次尝试 {new Date(entry.job.available_at).toLocaleString("zh-CN")}</small>}
-              {(entry.job?.error || entry.job?.keyword_error) && <small className="job-reason">{entry.job.error ?? entry.job.keyword_error}</small>}
+              {(entry.job?.error || entry.job?.keyword_error) && <small className="job-reason">{jobReason(entry.job.error ?? entry.job.keyword_error)}</small>}
+              {entry.job?.state === "failed" && entry.job.published_version_id && <small>已发布版本仍可查询。</small>}
+              {entry.job?.parse_report && <ParseDetails report={entry.job.parse_report} />}
               {Boolean(entry.error) && <><Notice error={entry.error} /><button type="button" className="text-button" onClick={() => queue.track(entry.id)}>重新查询</button></>}
             </li>)}</ul>}
         </section>

@@ -21,6 +21,12 @@ export interface Session extends Catalog {
   workspace: Workspace;
 }
 
+export type Location =
+  | { kind: "lines"; line_start: number; line_end: number }
+  | { kind: "pdf_page"; page: number }
+  | { kind: "docx_paragraph"; section: string[]; paragraph: number }
+  | { kind: "docx_table_row"; section: string[]; table: number; row: number };
+
 export interface Evidence {
   chunk_id: string;
   document_id: string;
@@ -28,8 +34,9 @@ export interface Evidence {
   filename: string;
   heading: string | null;
   body: string;
-  line_start: number;
-  line_end: number;
+  line_start: number | null;
+  line_end: number | null;
+  location?: Location | null;
 }
 
 export interface Retrieval {
@@ -60,6 +67,15 @@ export interface Submission {
   version_id: string;
 }
 
+export interface ParseReport {
+  status: "complete" | "partial" | "failed";
+  warnings: string[];
+  page_count: number | null;
+  scan_pages: number[];
+  no_text_pages: number[];
+  skipped_tables: number[];
+}
+
 export interface Job extends Submission {
   state: "queued" | "running" | "retry" | "done" | "failed";
   stage: string | null;
@@ -70,6 +86,7 @@ export interface Job extends Submission {
   keyword_status: "not_published" | "pending" | "retry" | "failed" | "synced";
   keyword_attempts: number | null;
   keyword_error: string | null;
+  parse_report?: ParseReport | null;
 }
 
 export class ApiError extends Error {
@@ -84,7 +101,7 @@ const errorMessages: Record<number, string> = {
   404: "资源不存在或当前应用无权访问。",
   409: "相同的上传请求标识已用于不同的文件。",
   413: "文件超过 256 KiB。",
-  415: "仅支持 Markdown 和 TXT 原件。",
+  415: "文件类型与扩展名不符。请上传 Markdown、TXT、DOCX 或 PDF 原件。",
   422: "请检查输入内容是否符合要求。",
   500: "服务处理请求时发生错误，请稍后重试。",
   502: "现在无法连接 RAG API，请检查服务是否已启动。",
@@ -104,8 +121,10 @@ async function request(path: string, workspaceId: string, init: RequestInit = {}
     ...init, headers, cache: "no-store", redirect: "error",
   });
   if (!response.ok) {
+    const body = response.status === 422 ? await response.json().catch(() => null) : null;
+    const message = body?.code === "format_mismatch" ? "文件内容与扩展名不符。" : errorMessages[response.status];
     throw new ApiError(
-      errorMessages[response.status] ?? `请求失败（${response.status}）。`,
+      message ?? `请求失败（${response.status}）。`,
       response.status, response.headers.get("x-request-id"),
     );
   }
@@ -142,8 +161,9 @@ export const api = {
   }),
   citation: (workspaceId: string, id: string, signal?: AbortSignal) =>
     json<Evidence>(`/citations/${encodeURIComponent(id)}`, workspaceId, { signal }),
-  download: async (workspaceId: string, id: string, fallback: string, signal?: AbortSignal) => {
-    const response = await request(`${documentPath(id)}/file`, workspaceId, { signal });
+  download: async (workspaceId: string, id: string, fallback: string, signal?: AbortSignal, version?: string) => {
+    const query = version ? `?${new URLSearchParams({ version_id: version })}` : "";
+    const response = await request(`${documentPath(id)}/file${query}`, workspaceId, { signal });
     const encoded = response.headers.get("content-disposition")?.match(/filename\*=UTF-8''([^;]+)/i)?.[1];
     const blob = await response.blob();
     if (signal?.aborted) return;

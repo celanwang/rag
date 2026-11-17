@@ -1,6 +1,6 @@
 # RAG Service
 
-The RAG service ingests Markdown and plain text and retrieves authorized evidence with citations. Run the commands from the repository root with Docker Compose, uv, and Python 3.11. [Compose config](../docs/env/rag/compose.yaml)
+The RAG service ingests Markdown, plain text, DOCX, and text PDFs and retrieves authorized evidence with citations. Run the commands from the repository root with Docker Compose, uv, and Python 3.11. [Compose config](../docs/env/rag/compose.yaml)
 
 ## Persistent rag-dev
 
@@ -103,7 +103,7 @@ curl -sS -i -H "Authorization: Bearer $rag_app_key" http://127.0.0.1:8001/v1/kno
 
 ## Upload and publish
 
-With the API running, grant the application `write`. Send the original bytes with a `filename` query parameter and an `Idempotency-Key` header. The upload accepts UTF-8 `.md` and `.txt` up to 256 KiB.
+With the API running, grant the application `write`. Send the original bytes with a `filename` query parameter and an `Idempotency-Key` header. The upload accepts UTF-8 `.md` and `.txt`, `.docx`, and text `.pdf` up to 256 KiB. See the [format acceptance guide](../docs/other/document-formats-results.md) for coverage, parser limits, and isolated test commands.
 
 ```sh
 uv run --locked python -m rag.cli grant alpha "$rag_app_id" demo write
@@ -125,7 +125,7 @@ export RAG_WORKER_DATABASE_URL="postgresql://rag_worker:$RAG_WORKER_PASSWORD@127
 uv run --locked --env-file .env python -m rag.worker
 ```
 
-Check the job from the upload terminal. After publication it has `state=done` and `stage=published`. A temporary model error schedules a retry, up to four total attempts. An expired lease makes the job claimable again.
+Check the job from the upload terminal. After publication it has `state=done` and `stage=published`. A temporary model error schedules a retry, up to four total attempts. An expired lease makes the job claimable again. For DOCX and PDF, the job's `parse_report` describes complete, partial, or failed extraction, including skipped pages or tables where applicable. Partial extraction with usable text can publish; failed extraction leaves the previous version published.
 
 ```sh
 curl -fsS -H "Authorization: Bearer $rag_app_key" "http://127.0.0.1:8001/v1/ingestion-jobs/$rag_job_id"
@@ -188,7 +188,7 @@ curl -fsS http://127.0.0.1:8001/v1/retrieve \
   -d '{"knowledge_base_code":"demo","question":"RET-ALPHA-07 如何申请退货？","mode":"rerank"}'
 ```
 
-Use a result's `chunk_id` with `GET /v1/citations/{chunk_id}` for the source lines and its `document_id` with `GET /v1/documents/{document_id}/file` for the current original. Both endpoints require the API key and return `404` when the evidence or file is outside its current read scope.
+Use a result's `chunk_id` with `GET /v1/citations/{chunk_id}` for the source position and its `document_id` with `GET /v1/documents/{document_id}/file` for the current original. Pass `version_id` in the download query to ensure the original still matches a specific citation. The `location` field has a `kind` discriminator for text lines, PDF pages, DOCX paragraphs, and DOCX table rows. Both endpoints require the API key and return `404` when the evidence or file is outside its current read scope.
 
 Use `PATCH /v1/documents/{document_id}/readers` with a write key to change the reader list. Send `{"readers":null}` to inherit library access, `{"readers":[]}` to deny reads, or a list of same-tenant application IDs. `DELETE /v1/documents/{document_id}` makes the document unavailable immediately and queues index cleanup.
 
@@ -196,7 +196,7 @@ Hybrid responses report a failed recall path in `degraded`. A failed reranker re
 
 ## Answer with citations
 
-Use a read key with `POST /v1/answer`. The default `fixed` strategy searches the original question with hybrid retrieval, reranking, and bounded same-section evidence. The generator selects excerpts by evidence ID and index. The service resolves them to original text and returns publication version IDs, source lines, and citation URLs.
+Use a read key with `POST /v1/answer`. The default `fixed` strategy searches the original question with hybrid retrieval, reranking, and bounded same-section evidence. The generator selects excerpts by evidence ID and index. The service resolves them to original text and returns publication version IDs, source locations, and citation URLs.
 
 ```sh
 curl -fsS http://127.0.0.1:8001/v1/answer \

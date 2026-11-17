@@ -12,6 +12,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
 - Operator keyword index repair, optional Celery executors for sync and ingest, and a recoverable index generation workflow.
 - Scoped policy date selection, conflict evidence, clarification hints, and authorized same-section supplemental evidence.
 - Cited question answering with fixed retrieval, bounded optional follow-up retrieval, and an offline RAGAS evaluation group.
+- DOCX and text PDF ingestion with parse diagnostics, page and section citations, and downloads tied to the cited version.
 
 - Contributor guidance for commits on `main`, local verification, and changelog updates.
 - FastAPI retrieval PoC with Markdown and text ingestion, pgvector and Elasticsearch, RRF, optional BGE reranking, and citations.

@@ -2,7 +2,7 @@
 
 ## 首批交付
 
-首批交付 Markdown/TXT 上传、异步入库、双路检索、引用和原件下载。业务应用通过 HTTP API 接入，本地工作台提供检索、知识库和文档入库界面。检索包含 pgvector 向量召回、ES 关键词召回、RRF 融合和可选精排。 [本地工作台](../../frontend/README.md) · [自研 PoC 实测](../other/poc-results.md#自研检索消融)
+支持 Markdown、TXT、DOCX 与文本 PDF 上传、异步入库、双路检索、引用和原件下载。业务应用通过 HTTP API 接入，本地工作台提供检索、知识库和文档入库界面。检索包含 pgvector 向量召回、ES 关键词召回、RRF 融合和可选精排。 [本地工作台](../../frontend/README.md) · [自研 PoC 实测](../other/poc-results.md#自研检索消融)
 
 首批采用自研链路，在服务端执行文档 ACL。RAGFlow 用作检索效果基线。其私有数据集通过了跨租户探测，同租户 API Key 可通过移除请求白名单读取受限文档。 [RAGFlow 对照](../other/poc-results.md#ragflow-同题对照) · [选型依据](research.md)
 
@@ -40,7 +40,7 @@ HTTP 响应通过 `X-Request-ID` 返回服务端生成的请求 ID。上传、�
 
 ## 检索与接口
 
-查询先验证知识库范围，再并行请求 pgvector 和 ES。两路共用块 ID。候选在读取正文前经 PG 授权复核，随后可用 RRF 合并并执行精排。返回前复核证据有效性。证据提供文件、版本和原文位置。首批引用和下载面向当前已发布版本，打开时再次鉴权。
+查询先验证知识库范围，再并行请求 pgvector 和 ES。两路共用块 ID。候选在读取正文前经 PG 授权复核，随后可用 RRF 合并并执行精排。返回前复核证据有效性。证据提供文件、版本和原文位置。引用和下载面向当前已发布版本，打开时再次鉴权。引用下载可附版本 ID，防止切换版本后下载错原件。格式支持、失败处理与限额见[格式验收记录](../other/document-formats-results.md)。
 
 混合检索在一路召回不可用时，使用另一路并在 `degraded` 中标记故障分支。精排不可用时保留融合顺序。若选定的召回路径全部失败，或任一次 PostgreSQL 权限复核失败，请求返回 `503`。
 
@@ -51,7 +51,7 @@ HTTP 响应通过 `X-Request-ID` 返回服务端生成的请求 ID。上传、�
 | `GET /v1/knowledge-bases` | 返回调用应用的租户 ID 和获准读取的知识库。 |
 | `GET /v1/knowledge-bases/{code}` | 按调用应用所属租户和知识库读权限返回库的 ID、短码及名称。 |
 | `GET /v1/knowledge-bases/{code}/documents` | 返回获准读取的当前发布文档及版本、大小和索引状态。用 `q` 按文件名查找，`offset` 和 `limit` 分页，响应中的 `has_more` 指示是否有下一页。 |
-| `POST /v1/knowledge-bases/{code}/documents` | 请求体为不超过 256 KiB 的 UTF-8 Markdown/TXT 原件，查询参数为 `filename`，请求头包含 `Idempotency-Key`。更新时传入 `document_id`。受理后返回 `202` 及文档、版本和任务 ID。 |
+| `POST /v1/knowledge-bases/{code}/documents` | 请求体为不超过 256 KiB 的 UTF-8 Markdown/TXT、DOCX 或 PDF 原件，查询参数为 `filename`，请求头包含 `Idempotency-Key`。更新时传入 `document_id`。受理后返回 `202` 及文档、版本和任务 ID。 |
 | `GET /v1/ingestion-jobs/{id}` | 查看入库阶段、重试、失败原因、发布版本和关键词同步状态。 |
 | `PATCH /v1/documents/{id}/readers` | 需知识库写权限。`null` 继承库读权限，空数组拒绝读取，名单仅允许同租户应用。变更时提交 ES 同步任务。 |
 | `DELETE /v1/documents/{id}` | 提交逻辑删除和 ES 同步任务。 |
@@ -62,7 +62,7 @@ HTTP 响应通过 `X-Request-ID` 返回服务端生成的请求 ID。上传、�
 
 ### 带引用问答
 
-服务端从应用凭证解析租户与库权限。固定策略用原问题执行混合召回、RRF、精排和同章节补证。生成模型从当次上下文选择原文摘录，服务端将证据 ID 和摘录下标解析为有版本和行号的引用。政策使用适用日和半开生效区间，范围有歧义时澄清，同等效力冲突可返回双方引用。
+服务端从应用凭证解析租户与库权限。固定策略用原问题执行混合召回、RRF、精排和同章节补证。生成模型从当次上下文选择原文摘录，服务端将证据 ID 和摘录下标解析为含版本和原文位置的引用（纯文本行号、PDF 页码或 DOCX 结构位置）。政策使用适用日和半开生效区间，范围有歧义时澄清，同等效力冲突可返回双方引用。
 
 可选策略在首轮证据有明确缺口时允许一次改写或关联卡片检索。首轮和补检锁定相同的权限范围与适用日。服务端在生成前以及返回前复核全部模型上下文，撤权、删除或换版期间的结果直接作废。评测复用原文范围金标，并将确定性检查与离线模型评分分开记录。 [接口和执行命令](../../rag/README.md#answer-with-citations)
 

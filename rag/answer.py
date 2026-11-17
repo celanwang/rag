@@ -15,6 +15,7 @@ from .auth import InvalidKey, LibraryForbidden, LibraryNotFound
 from .evidence import Evidence, ReadScope, load_evidence, read_scope
 from .generation import AnswerModel
 from .keyword import identifiers
+from .locations import Location
 from .models import ModelError
 from .retrieval import RetrievalUnavailable, Retriever, Search, order_policies
 
@@ -92,9 +93,10 @@ class Source(BaseModel):
     document_id: UUID
     version_id: UUID
     filename: str
-    line_start: int
-    line_end: int
+    line_start: int | None
+    line_end: int | None
     href: str
+    location: Location | None = None
 
 
 class Context(BaseModel):
@@ -189,7 +191,7 @@ def supplemental_query(lookup: Lookup, question: str, used: list[Evidence],
 def source(item: Evidence) -> Source:
     return Source(chunk_id=item.chunk_id, document_id=item.document_id, version_id=item.version_id,
                   filename=item.filename, line_start=item.line_start, line_end=item.line_end,
-                  href=f"/v1/citations/{item.chunk_id}")
+                  href=f"/v1/citations/{item.chunk_id}", location=item.location)
 
 
 def round_evidence(result: dict, search: Search) -> list[Evidence]:

@@ -5,7 +5,7 @@ A multi-tenant retrieval-augmented generation (RAG) service.
 ## Features
 
 - Tenant and application provisioning with knowledge base read and write grants.
-- Asynchronous Markdown and plain-text ingestion with version publication.
+- Asynchronous Markdown, plain text, DOCX, and text PDF ingestion with version publication.
 - Tenant-scoped document, version, and job storage.
 - Asynchronous keyword index synchronization for published documents.
 - Vector, keyword, and hybrid retrieval with optional reranking, source citations, and original downloads.

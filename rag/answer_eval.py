@@ -95,9 +95,10 @@ def measure(case, response, manifest, spans, documents, checked):
         and manifest[spans[chunk].document]["library"] == case["library"]
         and checked[chunk]["version_id"] == manifest[spans[chunk].document]["version_id"]
         and checked[chunk]["document_id"] == manifest[spans[chunk].document]["document_id"]
-        and (chunk not in citations or all(
-            citations[chunk][field] == checked[chunk][field]
-            for field in ("version_id", "document_id", "line_start", "line_end")
+        and (chunk not in citations or (
+            all(citations[chunk][field] == checked[chunk][field]
+                for field in ("version_id", "document_id", "line_start", "line_end"))
+            and citations[chunk].get("location") == checked[chunk].get("location")
         ))
         for chunk in actual_ids
     )

@@ -22,8 +22,9 @@ from .catalog import Catalog, DocumentPage, list_documents, list_libraries
 from .db import SCHEMA_OPTIONS
 from .documents import DocumentChange, InvalidReaders, change_document
 from .evidence import CitationNotFound, Evidence, citation, original, original_is_current
+from .format_parser import PROFILES, ParseFailure
 from .generation import AnswerModel
-from .ingest import DocumentNotFound, JobNotFound, JobStatus, RequestConflict, Submission, job_status, submit
+from .ingest import DocumentNotFound, JobNotFound, JobStatus, RequestConflict, Submission, job_status, submit, upload_mime
 from .keyword import KeywordIndex
 from .models import BailianModels
 from .retrieval import RetrievalUnavailable, Retriever, Search
@@ -122,6 +123,11 @@ def invalid_text(_request: Request, error: InvalidText) -> JSONResponse:
     return JSONResponse({"detail": str(error)}, status_code=422)
 
 
+@app.exception_handler(ParseFailure)
+def invalid_format(_request: Request, error: ParseFailure) -> JSONResponse:
+    return JSONResponse({"detail": "File signature does not match its extension", "code": error.code}, status_code=422)
+
+
 @app.exception_handler(RequestConflict)
 def upload_conflict(_request: Request, _error: RequestConflict) -> JSONResponse:
     return JSONResponse({"detail": "Idempotency key already used for a different upload"}, status_code=409)
@@ -177,7 +183,9 @@ async def upload_document(
     document_id: UUID | None = None,
 ) -> Submission:
     mime = request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
-    if mime not in {"", "text/markdown", "text/plain", "application/octet-stream"}:
+    expected = upload_mime(filename)
+    specific = {expected} if expected in PROFILES else {"text/markdown", "text/plain"}
+    if mime not in specific | {"", "application/octet-stream"}:
         raise HTTPException(415, "Expected the original file as the request body")
     body = bytearray()
     async for chunk in request.stream():
@@ -218,9 +226,9 @@ def read_citation(chunk_id: UUID, request: Request, key: ApiKey) -> Evidence:
 
 
 @app.get("/v1/documents/{document_id}/file")
-def read_file(document_id: UUID, request: Request, key: ApiKey) -> Response:
+def read_file(document_id: UUID, request: Request, key: ApiKey, version_id: UUID | None = None) -> Response:
     pool = request.app.state.pool
-    source = original(pool, key, document_id)
+    source = original(pool, key, document_id, version_id)
     if source is None:
         raise DocumentNotFound
     body = source.content
