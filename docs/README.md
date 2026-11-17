@@ -9,5 +9,7 @@
 
 ## Env
 
-- [Docker 环境](env/docker.md) · Compose 项目、服务和本地端口
-- [SQL 环境](env/sql.md) · PoC 初始化、数据库检查和首期空库方案
+- 自研 PoC · [Compose 配置](env/poc/compose.yaml)、[PostgreSQL 初始化 SQL](env/poc/schema.sql)
+- RAGFlow 基线 · [Compose 配置](env/ragflow/compose.yaml)
+
+启动和检查命令见 [PoC 运行手册](../poc/README.md)。

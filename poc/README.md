@@ -4,10 +4,10 @@ Run the commands from the repository root. Requirements are Docker Compose, uv, 
 
 ## Local Retrieval PoC
 
-Start PostgreSQL and Elasticsearch, install the locked dependencies, and start the API.
+Start PostgreSQL and Elasticsearch, install the locked dependencies, and start the API. [PoC Compose](../docs/env/poc/compose.yaml)
 
 ```sh
-docker compose up -d --wait
+docker compose -f docs/env/poc/compose.yaml up -d --wait
 uv sync --locked --python 3.11
 uv run --locked python -m poc.models
 uv run --locked uvicorn poc.api:app --host 127.0.0.1 --port 8000
@@ -21,6 +21,19 @@ uv run --locked python -m poc.verify
 ```
 
 The benchmark imports 14 files across two tenants and runs 30 questions against four retrieval modes. It uses up to eight candidates per search path, RRF with `k=60`, up to 12 candidates for reranking, and five results per query. The API defaults are 50 candidates per path and up to 30 for reranking. Use dedicated Compose volumes for a fixed corpus. Results include source fingerprints, model versions, ranks, and timings. [Validation report](../docs/poc-results.md)
+
+PostgreSQL listens on `127.0.0.1:55432` and Elasticsearch on `127.0.0.1:59200`. On an empty data volume, PostgreSQL enables pgvector, creates the `documents` and `chunks` tables, and sets up row-level security. The API connects as `rag_app` and accepts an override via `RAG_POSTGRES_DSN`. [Initialization SQL](../docs/env/poc/schema.sql)
+
+Check service status and confirm that PostgreSQL reports a pgvector version and `rowsecurity = t` for both tables.
+
+```sh
+docker compose -f docs/env/poc/compose.yaml ps
+docker compose -f docs/env/poc/compose.yaml exec -T postgres psql -U postgres -d rag \
+  -c "SELECT extversion FROM pg_extension WHERE extname = 'vector';" \
+  -c "SELECT tablename, rowsecurity FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename;"
+```
+
+Stop the services with `docker compose -f docs/env/poc/compose.yaml stop`. The named volumes retain the database and index.
 
 ## API Examples
 
@@ -44,7 +57,7 @@ curl -fsS http://127.0.0.1:8000/v1/retrieve \
 
 ## RAGFlow Baseline
 
-Run the local API first. The baseline uses RAGFlow 1.0.0 in a separate Compose project and calls the local embedding endpoint through Docker Desktop.
+Run the local API first. RAGFlow 1.0.0 runs in a separate Compose project, with its API on `127.0.0.1:19380` and admin API on `127.0.0.1:19381`. It calls the local embedding endpoint at `host.docker.internal:18090` through Docker Desktop. [RAGFlow Compose](../docs/env/ragflow/compose.yaml)
 
 ```sh
 mkdir -p .poc
@@ -54,9 +67,9 @@ mkdir -p .poc
   test -s .poc/ragflow-embedding-key || openssl rand -hex 24 > .poc/ragflow-embedding-key
 )
 export RAGFLOW_ADMIN_PASSWORD="$(cat .poc/ragflow-admin-password)"
-docker compose -f poc/ragflow/compose.yaml up -d --wait
-curl -fsS --retry 10 --retry-connrefused http://127.0.0.1:19380/api/v1/system/healthz
-docker compose -f poc/ragflow/compose.yaml exec -T ragflow cat /ragflow/conf/public.pem > .poc/ragflow-public.pem
+docker compose -f docs/env/ragflow/compose.yaml up -d --wait
+curl -fsS --retry 15 --retry-all-errors --retry-delay 2 http://127.0.0.1:19380/api/v1/system/healthz
+docker compose -f docs/env/ragflow/compose.yaml exec -T ragflow cat /ragflow/conf/public.pem > .poc/ragflow-public.pem
 ```
 
 When the health endpoint reports `status=ok`, start the embedding service.
